@@ -1,0 +1,339 @@
+'use strict';
+/* ========= CONFIGURACIÓN (ajustable con el personal de Ore Control) ========= */
+const LITO = [
+  [13,'Diorita'],[14,'Diorita c/ley'],[30,'Hornfels Fm. Mara'],[31,'Hornfels Fm. Mara c/ley'],
+  [32,'Caliza-Mármol Fm. Ferrobamba'],[40,'Skarn'],[49,'Brecha Polimíctica'],[65,'Stockwork Monzonita'],
+  [68,'Stockwork Sedimentarios'],[78,'Dique Dacita'],[80,'Dique Monzonita'],[98,'Dique Brecha'],
+  [85,'Monzonita Sur Mralz.'],[88,'Monzonita Sur Barren'],[99,'Cuaternario Aluvial'],
+  [100,'Volcánico Barroso'],[101,'Toba Volcánica'],[103,'Lahar']
+].map(([c,n])=>({v:String(c),t:c+' · '+n}));
+
+const FIELDS = [
+  {k:'estado',  l:'Estado del taladro', type:'chips', req:true, opts:['Logueado','No accesible','Tapado','Caído','No perforado']},
+  {k:'lito',    l:'Litología', type:'select', opts:LITO, only:'Logueado'},
+  {k:'lito2',   l:'Litología secundaria', type:'select', opts:LITO, only:'Logueado'},
+  {k:'alter',   l:'Alteración', type:'chips', only:'Logueado',
+     opts:['Sin alteración','Potásica','Propilítica','Fílica','Argílica','Silicificación','Skarn','Otra']},
+  {k:'mineral', l:'Mineralización', type:'multi', only:'Logueado',
+     opts:['Calcopirita','Bornita','Calcosina','Pirita','Molibdenita','Malaquita','Crisocola','Óx. Fe']},
+  {k:'intens',  l:'Intensidad mineralización', type:'chips', only:'Logueado', opts:['Nula','Baja','Media','Alta']},
+  {k:'dureza',  l:'Dureza', type:'chips', only:'Logueado', opts:['R0','R1','R2','R3','R4','R5','R6']},
+  {k:'fractura',l:'Fracturamiento', type:'chips', only:'Logueado', opts:['Bajo','Medio','Alto']},
+  {k:'humedad', l:'Humedad', type:'chips', only:'Logueado', opts:['Seco','Húmedo','Saturado']},
+  {k:'contacto',l:'Contacto litológico', type:'chips', only:'Logueado', opts:['No','Sí']},
+  {k:'contacto_m',l:'Prof. del contacto (m)', type:'num', only:'Logueado', needs:['contacto','Sí']},
+  {k:'prof',    l:'Profundidad real (m)', type:'num', only:'Logueado'},
+  {k:'obs',     l:'Observaciones', type:'text'}
+];
+/* ============================================================================ */
+
+const $ = s => document.querySelector(s);
+const cv = $('#map'), ctx = cv.getContext('2d');
+const S = { proj:null, holes:[], logs:new Map(), sel:null, draft:{}, view:{cx:0,cy:0,k:1},
+            gps:null, watch:null, cfg:{user:'',zone:19,hemi:'S',dE:0,dN:0}, cssv:{} };
+
+/* ---------- IndexedDB mínimo ---------- */
+let db;
+const idb = {
+  open(){ return new Promise((res,rej)=>{
+    const r = indexedDB.open('logueo-bh',1);
+    r.onupgradeneeded = e => { const d=e.target.result;
+      d.createObjectStore('projects',{keyPath:'name'});
+      d.createObjectStore('logs',{keyPath:'key'}).createIndex('proj','proj');
+      d.createObjectStore('photos',{keyPath:'id',autoIncrement:true}).createIndex('key','key'); };
+    r.onsuccess = ()=>{db=r.result;res()}; r.onerror = ()=>rej(r.error); }); },
+  tx(st,mode='readonly'){ return db.transaction(st,mode); },
+  req(r){ return new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}); },
+  all(st,idx,q){ const s=this.tx(st).objectStore(st); return this.req((idx?s.index(idx):s).getAll(q)); },
+  get(st,k){ return this.req(this.tx(st).objectStore(st).get(k)); },
+  put(st,v){ return this.req(this.tx(st,'readwrite').objectStore(st).put(v)); },
+  del(st,k){ return this.req(this.tx(st,'readwrite').objectStore(st).delete(k)); },
+};
+
+/* ---------- utilidades ---------- */
+function toast(m,ms=2200){ const t=$('#toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(toast.t); toast.t=setTimeout(()=>t.classList.remove('show'),ms); }
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function loadCfg(){ try{ Object.assign(S.cfg, JSON.parse(localStorage.getItem('cfg')||'{}')); }catch{} }
+function saveCfg(){ try{ localStorage.setItem('cfg',JSON.stringify(S.cfg)); }catch{} }
+
+/* ---------- lat/lon -> UTM (WGS84) ---------- */
+function toUTM(lat,lon,zone){
+  const a=6378137, f=1/298.257223563, k0=0.9996, e2=f*(2-f), ep2=e2/(1-e2), r=Math.PI/180;
+  const p=lat*r, l=lon*r, l0=((zone-1)*6-180+3)*r;
+  const N=a/Math.sqrt(1-e2*Math.sin(p)**2), T=Math.tan(p)**2, C=ep2*Math.cos(p)**2, A=(l-l0)*Math.cos(p);
+  const e4=e2*e2, e6=e4*e2;
+  const M=a*((1-e2/4-3*e4/64-5*e6/256)*p-(3*e2/8+3*e4/32+45*e6/1024)*Math.sin(2*p)
+        +(15*e4/256+45*e6/1024)*Math.sin(4*p)-(35*e6/3072)*Math.sin(6*p));
+  const E=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep2)*A**5/120)+500000;
+  let Nn=k0*(M+N*Math.tan(p)*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep2)*A**6/720));
+  if(lat<0) Nn+=10000000;
+  return {E,N:Nn};
+}
+const gpsEN = () => S.gps ? (()=>{const u=toUTM(S.gps.lat,S.gps.lon,S.cfg.zone);
+  return {E:u.E+S.cfg.dE,N:u.N+S.cfg.dN};})() : null;
+
+/* ---------- CSV ---------- */
+function parseCSV(txt){
+  const rows = txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean)
+    .map(l=>l.split(l.includes(';')&&!l.includes(',')?';':',').map(x=>x.trim().replace(/^"|"$/g,'')));
+  const num = x => parseFloat(String(x).replace(',','.'));
+  const holes=[];
+  for(const r of rows){
+    if(r.length<3) continue;
+    const a=num(r[1]), b=num(r[2]);
+    if(!isFinite(a)||!isFinite(b)) continue;      // cabecera u otra fila
+    // el valor ~8e6 es el Norte, ~2e5-8e5 el Este (en Perú sur)
+    const N=Math.max(a,b)>1e6?Math.max(a,b):a, E=Math.max(a,b)>1e6?Math.min(a,b):b;
+    holes.push({id:r[0],E,N,Z:num(r[3]),proj:r[4]||''});
+  }
+  return holes;
+}
+
+/* ---------- proyectos ---------- */
+async function refreshProjects(sel){
+  const ps = await idb.all('projects');
+  const el=$('#projSel'); el.innerHTML='';
+  ps.sort((a,b)=>a.name.localeCompare(b.name));
+  ps.forEach(p=>el.add(new Option(p.name,p.name)));
+  if(!ps.length){ S.proj=null; S.holes=[]; S.logs=new Map(); draw(); updateProgress(); return; }
+  const want = sel && ps.find(p=>p.name===sel) ? sel : (localStorage.getItem('proj')||ps[0].name);
+  el.value = ps.find(p=>p.name===want)?want:ps[0].name;
+  await openProject(el.value);
+}
+async function openProject(name){
+  const p=await idb.get('projects',name); if(!p) return;
+  S.proj=name; S.holes=p.holes; S.sel=null; $('#sheet').hidden=true;
+  try{localStorage.setItem('proj',name)}catch{}
+  S.logs=new Map((await idb.all('logs','proj',name)).map(l=>[l.key,l]));
+  fitView(); draw(); updateProgress();
+}
+function updateProgress(){
+  const n=S.holes.length, done=[...S.logs.values()].filter(l=>l.estado).length;
+  $('#progress').textContent = n? `${done} / ${n} taladros`:'';
+  $('#empty').style.display = n?'none':'flex';
+}
+
+/* ---------- mapa ---------- */
+function fitView(){
+  if(!S.holes.length) return;
+  const E=S.holes.map(h=>h.E),N=S.holes.map(h=>h.N);
+  const minE=Math.min(...E),maxE=Math.max(...E),minN=Math.min(...N),maxN=Math.max(...N);
+  const w=cv.clientWidth||400,h=cv.clientHeight||400,pad=50;
+  S.view.k=Math.min((w-pad*2)/Math.max(maxE-minE,10),(h-pad*2)/Math.max(maxN-minN,10));
+  S.view.cx=(minE+maxE)/2; S.view.cy=(minN+maxN)/2;
+}
+const w2s=(E,N)=>[(E-S.view.cx)*S.view.k+cv.clientWidth/2,(S.view.cy-N)*S.view.k+cv.clientHeight/2];
+const s2w=(x,y)=>[(x-cv.clientWidth/2)/S.view.k+S.view.cx,S.view.cy-(y-cv.clientHeight/2)/S.view.k];
+function resize(){ const d=devicePixelRatio||1;
+  cv.width=cv.clientWidth*d; cv.height=cv.clientHeight*d; ctx.setTransform(d,0,0,d,0,0); draw(); }
+function cssv(){ const s=getComputedStyle(document.documentElement);
+  ['pend','ok','obs','sel','lbl','mapbg'].forEach(k=>S.cssv[k]=s.getPropertyValue('--'+k).trim()); }
+function colorFor(h){ const l=S.logs.get(S.proj+'|'+h.id);
+  if(!l||!l.estado) return S.cssv.pend; return l.estado==='Logueado'?S.cssv.ok:S.cssv.obs; }
+
+let raf=0; function draw(){ if(raf) return; raf=requestAnimationFrame(()=>{raf=0; render();}); }
+function render(){
+  cssv(); const w=cv.clientWidth,h=cv.clientHeight; ctx.clearRect(0,0,w,h);
+  if(!S.holes.length) return;
+  // espaciamiento típico en pantalla -> decide si se dibujan etiquetas
+  const showLbl = S.view.k*8 > 26;
+  ctx.font='bold 12px system-ui'; ctx.textBaseline='middle';
+  for(const p of S.holes){
+    const [x,y]=w2s(p.E,p.N); if(x<-30||y<-30||x>w+30||y>h+30) continue;
+    ctx.beginPath(); ctx.arc(x,y,Math.min(10,Math.max(4,S.view.k*1.5)),0,7);
+    ctx.fillStyle=colorFor(p); ctx.fill();
+    if(S.sel===p.id){ ctx.lineWidth=3; ctx.strokeStyle=S.cssv.sel; ctx.stroke(); }
+    if(showLbl||S.sel===p.id){ ctx.fillStyle=S.cssv.lbl; ctx.fillText(p.id,x+9,y-9); }
+  }
+  const g=gpsEN();
+  if(g){ const [x,y]=w2s(g.E,g.N), acc=(S.gps.acc||5)*S.view.k;
+    ctx.beginPath(); ctx.arc(x,y,Math.max(acc,8),0,7); ctx.fillStyle='#ef444422'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.fillStyle='#ef4444'; ctx.fill();
+    ctx.lineWidth=2.5; ctx.strokeStyle='#fff'; ctx.stroke(); }
+}
+function nearestTo(E,N,maxM=Infinity){ let best=null,bd=maxM;
+  for(const p of S.holes){ const d=Math.hypot(p.E-E,p.N-N); if(d<bd){bd=d;best=p;} }
+  return best?{h:best,d:bd}:null; }
+
+/* gestos: arrastrar, pellizcar, rueda, tap */
+const ptrs=new Map(); let moved=0,startPt=null,pinch=0;
+cv.addEventListener('pointerdown',e=>{ cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(ptrs.size===1){moved=0;startPt=[e.clientX,e.clientY];} pinch=0; });
+cv.addEventListener('pointermove',e=>{ if(!ptrs.has(e.pointerId)) return;
+  const prev=ptrs.get(e.pointerId); ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(ptrs.size===1){ const dx=e.clientX-prev[0],dy=e.clientY-prev[1]; moved+=Math.abs(dx)+Math.abs(dy);
+    S.view.cx-=dx/S.view.k; S.view.cy+=dy/S.view.k; draw(); }
+  else if(ptrs.size===2){ moved+=99; const [a,b]=[...ptrs.values()]; const d=Math.hypot(a[0]-b[0],a[1]-b[1]);
+    if(pinch){ zoomAt((a[0]+b[0])/2,(a[1]+b[1])/2,d/pinch); } pinch=d; } });
+const up=e=>{ const was=ptrs.has(e.pointerId); ptrs.delete(e.pointerId);
+  if(was&&ptrs.size===0&&moved<8&&e.type==='pointerup'){ tap(e.clientX,e.clientY); } pinch=0; };
+cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
+cv.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.offsetX,e.offsetY,e.deltaY<0?1.2:1/1.2)},{passive:false});
+function zoomAt(x,y,f){ const [E,N]=s2w(x,y); S.view.k=Math.min(60,Math.max(0.02,S.view.k*f));
+  const [x2,y2]=w2s(E,N); S.view.cx+=(x2-x)/S.view.k; S.view.cy-=(y2-y)/S.view.k; draw(); }
+function tap(cx,cy){ const r=cv.getBoundingClientRect(),[E,N]=s2w(cx-r.left,cy-r.top);
+  const n=nearestTo(E,N); if(n&&n.d*S.view.k<28) openHole(n.h); }
+
+/* ---------- formulario ---------- */
+async function openHole(h){
+  S.sel=h.id; const key=S.proj+'|'+h.id;
+  S.draft = {...(S.logs.get(key)||{})}; renderForm(); await renderThumbs();
+  const g=gpsEN(), d=g?Math.hypot(g.E-h.E,g.N-h.N):null;
+  $('#holeTitle').textContent='Taladro '+h.id;
+  $('#holeSub').textContent=` Cota ${isFinite(h.Z)?h.Z.toFixed(0):'-'}`+(d!=null?` · a ${d.toFixed(0)} m de ti`:'');
+  $('#sheet').hidden=false; $('#sheet').scrollTop=0; draw();
+}
+function renderForm(){
+  const f=$('#form'); f.innerHTML='';
+  for(const fd of FIELDS){
+    if(fd.only && S.draft.estado!==fd.only) continue;
+    if(fd.needs && S.draft[fd.needs[0]]!==fd.needs[1]) continue;
+    const box=document.createElement('div'); box.className='fld';
+    box.innerHTML=`<label>${esc(fd.l)}${fd.req?' *':''}</label>`;
+    const v=S.draft[fd.k];
+    if(fd.type==='chips'||fd.type==='multi'){
+      const c=document.createElement('div'); c.className='chips';
+      const cur=fd.type==='multi'?(v||[]):[v];
+      for(const o of fd.opts){ const b=document.createElement('button'); b.type='button';
+        b.className='chip'+(cur.includes(o)?' on':''); b.textContent=o;
+        b.onclick=()=>{ if(fd.type==='multi'){ const a=new Set(S.draft[fd.k]||[]); a.has(o)?a.delete(o):a.add(o); S.draft[fd.k]=[...a]; }
+          else S.draft[fd.k]= S.draft[fd.k]===o?'':o;
+          renderForm(); };
+        c.append(b); }
+      box.append(c);
+    } else if(fd.type==='select'){
+      const s=document.createElement('select'); s.add(new Option('—',''));
+      fd.opts.forEach(o=>s.add(new Option(o.t,o.v))); s.value=v||'';
+      s.onchange=()=>S.draft[fd.k]=s.value; box.append(s);
+    } else if(fd.type==='num'){
+      const i=document.createElement('input'); i.type='number'; i.inputMode='decimal'; i.step='any'; i.value=v??'';
+      i.oninput=()=>S.draft[fd.k]=i.value; box.append(i);
+    } else {
+      const t=document.createElement('textarea'); t.rows=2; t.value=v||''; t.oninput=()=>S.draft[fd.k]=t.value; box.append(t);
+    }
+    f.append(box);
+  }
+}
+async function renderThumbs(){
+  const box=$('#thumbs'); box.innerHTML='';
+  const ph=await idb.all('photos','key',S.proj+'|'+S.sel);
+  for(const p of ph){ const im=new Image(); im.src=URL.createObjectURL(p.blob);
+    im.onclick=()=>{ if(confirm('¿Eliminar esta foto?')) idb.del('photos',p.id).then(renderThumbs); }; box.append(im); }
+}
+$('#btnPhoto').onclick=()=>$('#filePhoto').click();
+$('#filePhoto').onchange=async e=>{
+  for(const f of e.target.files){ const blob=await shrink(f); await idb.put('photos',{key:S.proj+'|'+S.sel,blob,ts:Date.now()}); }
+  e.target.value=''; renderThumbs(); toast('Foto guardada');
+};
+function shrink(file,max=1280){ return new Promise(res=>{
+  const im=new Image(); im.onload=()=>{ const k=Math.min(1,max/Math.max(im.width,im.height));
+    const c=document.createElement('canvas'); c.width=im.width*k; c.height=im.height*k;
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height); c.toBlob(b=>res(b||file),'image/jpeg',0.8); URL.revokeObjectURL(im.src); };
+  im.onerror=()=>res(file); im.src=URL.createObjectURL(file); }); }
+
+$('#btnClose').onclick=()=>{ $('#sheet').hidden=true; S.sel=null; draw(); };
+$('#btnSave').onclick=async()=>{
+  if(!S.draft.estado){ toast('Elige el estado del taladro'); return; }
+  const h=S.holes.find(x=>x.id===S.sel), g=gpsEN();
+  const rec={...S.draft,key:S.proj+'|'+h.id,proj:S.proj,id:h.id,E:h.E,N:h.N,Z:h.Z,
+    user:S.cfg.user,ts:new Date().toISOString(),
+    gps_E:g?+g.E.toFixed(2):'',gps_N:g?+g.N.toFixed(2):'',gps_acc:S.gps?+(S.gps.acc||0).toFixed(1):'',
+    gps_dist:g?+Math.hypot(g.E-h.E,g.N-h.N).toFixed(1):''};
+  await idb.put('logs',rec); S.logs.set(rec.key,rec);
+  $('#sheet').hidden=true; S.sel=null; updateProgress(); draw(); toast('Taladro '+h.id+' guardado ✓');
+};
+$('#btnCal').onclick=()=>{
+  if(!S.gps){ toast('Activa el GPS (◎) primero'); return; }
+  const h=S.holes.find(x=>x.id===S.sel); const u=toUTM(S.gps.lat,S.gps.lon,S.cfg.zone);
+  if(!confirm(`¿Estás parado sobre el taladro ${h.id}? Se corregirá la posición GPS de todo el mapa.`)) return;
+  S.cfg.dE=h.E-u.E; S.cfg.dN=h.N-u.N; saveCfg(); draw(); toast(`Calibrado (ΔE ${S.cfg.dE.toFixed(1)}, ΔN ${S.cfg.dN.toFixed(1)} m)`);
+};
+
+/* ---------- GPS ---------- */
+$('#btnGps').onclick=()=>{
+  if(!S.holes.length){ toast('Carga primero el CSV'); return; }
+  if(!navigator.geolocation){ toast('Este equipo no tiene GPS'); return; }
+  if(S.watch==null){
+    S.watch=navigator.geolocation.watchPosition(p=>{
+      S.gps={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy};
+      gpsStatus(); draw(); },
+      err=>{ toast('GPS: '+err.message); S.watch=null; },
+      {enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+    toast('Buscando GPS…');
+  }
+  const g=gpsEN(); if(g){ S.view.cx=g.E; S.view.cy=g.N; if(S.view.k<2) S.view.k=2; draw(); }
+};
+function gpsStatus(){
+  const g=gpsEN(); const n=g&&nearestTo(g.E,g.N);
+  $('#gpsInfo').innerHTML = n? `±${Math.round(S.gps.acc)} m · más cercano: <b>${esc(n.h.id)}</b> (${n.d.toFixed(0)} m)`:'';
+  if(n){ S.near=n.h; }
+}
+$('#gpsInfo').onclick=()=>{ if(S.near) openHole(S.near); };
+
+/* ---------- carga CSV ---------- */
+$('#btnCsv').onclick=()=>$('#fileCsv').click();
+$('#fileCsv').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  const holes=parseCSV(await f.text());
+  if(!holes.length){ toast('No se encontraron taladros en el CSV',3500); return; }
+  const name=holes[0].proj||f.name.replace(/\.\w+$/,'');
+  if(await idb.get('projects',name) && !confirm(`El proyecto ${name} ya existe. ¿Reemplazar los taladros? (los logueos se conservan)`)) return;
+  await idb.put('projects',{name,holes,added:Date.now()});
+  await refreshProjects(name); toast(`${holes.length} taladros cargados`);
+};
+$('#projSel').onchange=e=>openProject(e.target.value);
+
+/* ---------- ajustes ---------- */
+function offTxt(){ $('#cfgOff').textContent=`Calibración GPS: ΔE ${S.cfg.dE.toFixed(1)} m, ΔN ${S.cfg.dN.toFixed(1)} m`; }
+$('#btnCfg').onclick=()=>{ $('#cfgUser').value=S.cfg.user; $('#cfgZone').value=S.cfg.zone; $('#cfgHemi').value=S.cfg.hemi; offTxt(); $('#cfg').showModal(); };
+$('#cfgOk').onclick=()=>{ S.cfg.user=$('#cfgUser').value.trim(); S.cfg.zone=+$('#cfgZone').value||19; S.cfg.hemi=$('#cfgHemi').value;
+  saveCfg(); $('#cfg').close(); draw(); };
+$('#cfgResetOff').onclick=()=>{ S.cfg.dE=S.cfg.dN=0; saveCfg(); offTxt(); draw(); };
+$('#cfgWipe').onclick=async()=>{
+  if(!S.proj||!confirm(`¿Borrar el proyecto ${S.proj} con TODOS sus logueos y fotos de este equipo? Exporta antes.`)) return;
+  for(const l of await idb.all('logs','proj',S.proj)){ for(const p of await idb.all('photos','key',l.key)) await idb.del('photos',p.id); await idb.del('logs',l.key); }
+  for(const p of await idb.all('photos')) if(p.key.startsWith(S.proj+'|')) await idb.del('photos',p.id);
+  await idb.del('projects',S.proj); $('#cfg').close(); await refreshProjects();
+};
+
+/* ---------- exportar (ZIP: logueo.csv + fotos) ---------- */
+const COLS=['proj','id','E','N','Z','estado','lito','lito2','alter','mineral','intens','dureza','fractura','humedad',
+  'contacto','contacto_m','prof','obs','user','ts','gps_E','gps_N','gps_acc','gps_dist'];
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=b=>{let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=crcT[(c^b[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0};
+function zip(files){ // almacenado sin compresión
+  const enc=new TextEncoder(), parts=[], cen=[]; let off=0;
+  const u16=n=>[n&255,n>>8&255], u32=n=>[n&255,n>>8&255,n>>16&255,n>>>24&255];
+  for(const f of files){ const nm=enc.encode(f.name), crc=crc32(f.data), sz=f.data.length;
+    const lh=new Uint8Array([0x50,0x4b,3,4,20,0,0,8,0,0,0,0,0,0,...u32(crc),...u32(sz),...u32(sz),...u16(nm.length),0,0,...nm]);
+    parts.push(lh,f.data);
+    cen.push(new Uint8Array([0x50,0x4b,1,2,20,0,20,0,0,8,0,0,0,0,0,0,...u32(crc),...u32(sz),...u32(sz),...u16(nm.length),0,0,0,0,0,0,0,0,0,0,0,0,...u32(off),...nm]));
+    off+=lh.length+sz; }
+  const cl=cen.reduce((a,b)=>a+b.length,0);
+  return new Blob([...parts,...cen,new Uint8Array([0x50,0x4b,5,6,0,0,0,0,...u16(files.length),...u16(files.length),...u32(cl),...u32(off),0,0])],{type:'application/zip'});
+}
+$('#btnExport').onclick=async()=>{
+  if(!S.proj){ toast('No hay proyecto'); return; }
+  const logs=await idb.all('logs','proj',S.proj); if(!logs.length){ toast('Aún no hay logueos'); return; }
+  const q=v=>{const s=Array.isArray(v)?v.join('|'):String(v??'');return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+  const csv='﻿'+COLS.join(',')+'\n'+logs.sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}))
+    .map(l=>COLS.map(c=>q(l[c])).join(',')).join('\n');
+  const enc=new TextEncoder(), files=[{name:'logueo.csv',data:enc.encode(csv)}];
+  const keyId=new Map(logs.map(l=>[l.key,l.id])); let n=0;
+  for(const p of await idb.all('photos')){ const id=keyId.get(p.key); if(!id) continue;
+    files.push({name:`fotos/${id}_${++n}.jpg`,data:new Uint8Array(await p.blob.arrayBuffer())}); }
+  const d=new Date().toISOString().slice(0,10), fn=`${S.proj}_logueo_${(S.cfg.user||'user').replace(/\W+/g,'')}_${d}.zip`;
+  const blob=zip(files), file=new File([blob],fn,{type:'application/zip'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file],title:fn}); return; }catch(e){ if(e.name==='AbortError') return; } }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fn; a.click(); toast('Descargado '+fn,3500);
+};
+
+/* ---------- arranque ---------- */
+addEventListener('resize',resize);
+matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
+(async()=>{
+  loadCfg(); await idb.open(); resize(); await refreshProjects();
+  if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+})();

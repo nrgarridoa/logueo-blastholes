@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#14213d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Logueo Blastholes</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <select id="projSel" aria-label="Proyecto"></select>
+  <button id="btnCsv" title="Cargar CSV de taladros">CSV</button>
+  <button id="btnExport" title="Exportar logueos">Exportar</button>
+  <button id="btnCfg" title="Ajustes">⚙</button>
+  <input id="fileCsv" type="file" accept=".csv,.txt,text/csv" hidden>
+</header>
+
+<main>
+  <canvas id="map"></canvas>
+  <div id="empty">Carga el CSV de taladros<br><small>id, Norte, Este, Cota, proyecto</small></div>
+  <div id="progress"></div>
+  <div id="legend">
+    <span><i class="d pend"></i>Pendiente</span>
+    <span><i class="d ok"></i>Logueado</span>
+    <span><i class="d obs"></i>Sin acceso/otro</span>
+  </div>
+  <button id="btnGps" class="fab">◎</button>
+  <div id="gpsInfo"></div>
+</main>
+
+<section id="sheet" hidden>
+  <div class="sheet-head">
+    <div><b id="holeTitle"></b><small id="holeSub"></small></div>
+    <button id="btnClose" class="ghost">✕</button>
+  </div>
+  <form id="form" autocomplete="off"></form>
+  <div class="photos">
+    <div id="thumbs"></div>
+    <button type="button" id="btnPhoto">📷 Foto</button>
+    <input id="filePhoto" type="file" accept="image/*" capture="environment" multiple hidden>
+  </div>
+  <div class="sheet-foot">
+    <button id="btnCal" class="ghost" type="button" title="Estoy parado sobre este taladro: corregir desplazamiento del GPS">📍 Calibrar aquí</button>
+    <button id="btnSave" class="primary" type="button">Guardar</button>
+  </div>
+</section>
+
+<dialog id="cfg">
+  <h3>Ajustes</h3>
+  <label>Usuario <input id="cfgUser" type="text" placeholder="Nombre / iniciales"></label>
+  <label>Zona UTM <input id="cfgZone" type="number" min="1" max="60"></label>
+  <label>Hemisferio
+    <select id="cfgHemi"><option value="S">Sur</option><option value="N">Norte</option></select>
+  </label>
+  <p id="cfgOff"></p>
+  <div class="row">
+    <button id="cfgResetOff" class="ghost" type="button">Quitar calibración</button>
+    <button id="cfgWipe" class="danger" type="button">Borrar datos del proyecto</button>
+  </div>
+  <div class="row"><button id="cfgOk" class="primary" type="button">Cerrar</button></div>
+</dialog>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
