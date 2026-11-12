@@ -30,7 +30,7 @@ const FIELDS = [
 const $ = s => document.querySelector(s);
 const cv = $('#map'), ctx = cv.getContext('2d');
 const S = { proj:null, holes:[], logs:new Map(), sel:null, draft:{}, view:{cx:0,cy:0,k:1},
-            gps:null, watch:null, cfg:{user:'',zone:19,hemi:'S',dE:0,dN:0}, cssv:{} };
+            gps:null, watch:null, near:null, last:null, bounds:null, fitK:1, order:[], wake:null, cfg:{user:'',zone:19,hemi:'S',dE:0,dN:0}, cssv:{} };
 
 /* ---------- IndexedDB mínimo ---------- */
 let db;
@@ -103,7 +103,7 @@ async function refreshProjects(sel){
 }
 async function openProject(name){
   const p=await idb.get('projects',name); if(!p) return;
-  S.proj=name; S.holes=p.holes; S.sel=null; $('#sheet').hidden=true;
+  S.proj=name; S.holes=p.holes; S.order=[...p.holes].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})); S.sel=null; $('#sheet').hidden=true;
   try{localStorage.setItem('proj',name)}catch{}
   S.logs=new Map((await idb.all('logs','proj',name)).map(l=>[l.key,l]));
   fitView(); draw(); updateProgress();
@@ -122,6 +122,13 @@ function fitView(){
   const w=cv.clientWidth||400,h=cv.clientHeight||400,pad=50;
   S.view.k=Math.min((w-pad*2)/Math.max(maxE-minE,10),(h-pad*2)/Math.max(maxN-minN,10));
   S.view.cx=(minE+maxE)/2; S.view.cy=(minN+maxN)/2;
+  S.bounds={minE,maxE,minN,maxN}; S.fitK=S.view.k;
+}
+function clampView(){
+  const b=S.bounds; if(!b) return; const m=40;
+  S.view.cx=Math.min(Math.max(S.view.cx,b.minE-m),b.maxE+m);
+  S.view.cy=Math.min(Math.max(S.view.cy,b.minN-m),b.maxN+m);
+  S.view.k=Math.min(60,Math.max(S.fitK*0.5,S.view.k));
 }
 const w2s=(E,N)=>[(E-S.view.cx)*S.view.k+cv.clientWidth/2,(S.view.cy-N)*S.view.k+cv.clientHeight/2];
 const s2w=(x,y)=>[(x-cv.clientWidth/2)/S.view.k+S.view.cx,S.view.cy-(y-cv.clientHeight/2)/S.view.k];
@@ -132,20 +139,33 @@ function cssv(){ const s=getComputedStyle(document.documentElement);
 function colorFor(h){ const l=S.logs.get(S.proj+'|'+h.id);
   if(!l||!l.estado) return S.cssv.pend; return l.estado==='Logueado'?S.cssv.ok:S.cssv.obs; }
 
-let raf=0; function draw(){ if(raf) return; raf=requestAnimationFrame(()=>{raf=0; render();}); }
+let raf=0; function draw(){ if(raf) return; raf=requestAnimationFrame(()=>{raf=0; clampView(); render();}); }
 function render(){
   cssv(); const w=cv.clientWidth,h=cv.clientHeight; ctx.clearRect(0,0,w,h);
   if(!S.holes.length) return;
-  // espaciamiento típico en pantalla -> decide si se dibujan etiquetas
-  const showLbl = S.view.k*8 > 26;
-  ctx.font='bold 12px system-ui'; ctx.textBaseline='middle';
+  ctx.font='600 11px system-ui'; ctx.textBaseline='middle';
+  const rad=Math.min(9,Math.max(3,S.view.k*1.4)), placed=[], labels=[];
   for(const p of S.holes){
     const [x,y]=w2s(p.E,p.N); if(x<-30||y<-30||x>w+30||y>h+30) continue;
-    ctx.beginPath(); ctx.arc(x,y,Math.min(10,Math.max(4,S.view.k*1.5)),0,7);
-    ctx.fillStyle=colorFor(p); ctx.fill();
+    ctx.beginPath(); ctx.arc(x,y,rad,0,7); ctx.fillStyle=colorFor(p); ctx.fill();
     if(S.sel===p.id){ ctx.lineWidth=3; ctx.strokeStyle=S.cssv.sel; ctx.stroke(); }
-    if(showLbl||S.sel===p.id){ ctx.fillStyle=S.cssv.lbl; ctx.fillText(p.id,x+9,y-9); }
+    labels.push([p,x,y]);
   }
+  labels.sort((a,b)=>(b[0].id===S.sel)-(a[0].id===S.sel));
+  for(const [p,x,y] of labels){
+    const tw=ctx.measureText(p.id).width, bx=x+rad+2, by=y-rad-9, bw=tw+4, bh=13;
+    if(p.id!==S.sel && placed.some(r=>bx<r[0]+r[2]&&bx+bw>r[0]&&by<r[1]+r[3]&&by+bh>r[1])) continue;
+    placed.push([bx,by,bw,bh]); ctx.fillStyle=S.cssv.lbl; ctx.fillText(p.id,bx+2,by+bh/2);
+  }
+  const gp=gpsEN(), sh=S.sel&&S.holes.find(x=>x.id===S.sel);
+  if(gp&&sh){ const [a,b]=w2s(gp.E,gp.N),[c,d]=w2s(sh.E,sh.N);
+    ctx.setLineDash([6,5]); ctx.lineWidth=2; ctx.strokeStyle='#ef4444'; ctx.beginPath(); ctx.moveTo(a,b); ctx.lineTo(c,d); ctx.stroke(); ctx.setLineDash([]); }
+  const nice=[1,2,5,10,20,50,100,200,500,1000]; const m=nice.find(v=>v*S.view.k>=70)||1000, px=m*S.view.k;
+  ctx.strokeStyle=S.cssv.lbl; ctx.fillStyle=S.cssv.lbl; ctx.lineWidth=2; ctx.font='600 12px system-ui';
+  ctx.beginPath(); ctx.moveTo(12,h-92); ctx.lineTo(12+px,h-92); ctx.moveTo(12,h-97); ctx.lineTo(12,h-87); ctx.moveTo(12+px,h-97); ctx.lineTo(12+px,h-87); ctx.stroke();
+  ctx.fillText(m+' m',16,h-102);
+  ctx.beginPath(); ctx.moveTo(w-30,62); ctx.lineTo(w-38,88); ctx.lineTo(w-30,82); ctx.lineTo(w-22,88); ctx.closePath(); ctx.fill();
+  ctx.fillText('N',w-35,100);
   const g=gpsEN();
   if(g){ const [x,y]=w2s(g.E,g.N), acc=(S.gps.acc||5)*S.view.k;
     ctx.beginPath(); ctx.arc(x,y,Math.max(acc,8),0,7); ctx.fillStyle='#ef444422'; ctx.fill();
@@ -170,7 +190,7 @@ const up=e=>{ const was=ptrs.has(e.pointerId); ptrs.delete(e.pointerId);
   if(was&&ptrs.size===0&&moved<8&&e.type==='pointerup'){ tap(e.clientX,e.clientY); } pinch=0; };
 cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
 cv.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.offsetX,e.offsetY,e.deltaY<0?1.2:1/1.2)},{passive:false});
-function zoomAt(x,y,f){ const [E,N]=s2w(x,y); S.view.k=Math.min(60,Math.max(0.02,S.view.k*f));
+function zoomAt(x,y,f){ const [E,N]=s2w(x,y); S.view.k=S.view.k*f;
   const [x2,y2]=w2s(E,N); S.view.cx+=(x2-x)/S.view.k; S.view.cy-=(y2-y)/S.view.k; draw(); }
 function tap(cx,cy){ const r=cv.getBoundingClientRect(),[E,N]=s2w(cx-r.left,cy-r.top);
   const n=nearestTo(E,N); if(n&&n.d*S.view.k<28) openHole(n.h); }
@@ -182,7 +202,8 @@ async function openHole(h){
   const g=gpsEN(), d=g?Math.hypot(g.E-h.E,g.N-h.N):null;
   $('#holeTitle').textContent='Taladro '+h.id;
   $('#holeSub').textContent=` Cota ${isFinite(h.Z)?h.Z.toFixed(0):'-'}`+(d!=null?` · a ${d.toFixed(0)} m de ti`:'');
-  $('#sheet').hidden=false; $('#sheet').scrollTop=0; draw();
+  $('#sheet').hidden=false; $('#sheet').scrollTop=0;
+  S.view.cx=h.E; S.view.cy=h.N; if(S.view.k<3) S.view.k=3; draw();
 }
 function renderForm(){
   const f=$('#form'); f.innerHTML='';
@@ -240,7 +261,7 @@ $('#btnSave').onclick=async()=>{
     user:S.cfg.user,ts:new Date().toISOString(),
     gps_E:g?+g.E.toFixed(2):'',gps_N:g?+g.N.toFixed(2):'',gps_acc:S.gps?+(S.gps.acc||0).toFixed(1):'',
     gps_dist:g?+Math.hypot(g.E-h.E,g.N-h.N).toFixed(1):''};
-  await idb.put('logs',rec); S.logs.set(rec.key,rec);
+  await idb.put('logs',rec); S.logs.set(rec.key,rec); S.last=rec;
   $('#sheet').hidden=true; S.sel=null; updateProgress(); draw(); toast('Taladro '+h.id+' guardado ✓');
 };
 $('#btnCal').onclick=()=>{
@@ -260,7 +281,7 @@ $('#btnGps').onclick=()=>{
       gpsStatus(); draw(); },
       err=>{ toast('GPS: '+err.message); S.watch=null; },
       {enableHighAccuracy:true,maximumAge:2000,timeout:20000});
-    toast('Buscando GPS…');
+    toast('Buscando GPS…'); keepAwake();
   }
   const g=gpsEN(); if(g){ S.view.cx=g.E; S.view.cy=g.N; if(S.view.k<2) S.view.k=2; draw(); }
 };
@@ -329,11 +350,100 @@ $('#btnExport').onclick=async()=>{
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fn; a.click(); toast('Descargado '+fn,3500);
 };
 
+/* ---------- encuadre, búsqueda y navegación ---------- */
+$('#btnFit').onclick=()=>{ fitView(); draw(); };
+$('#btnZin').onclick=()=>zoomAt(cv.clientWidth/2,cv.clientHeight/2,1.5);
+$('#btnZout').onclick=()=>zoomAt(cv.clientWidth/2,cv.clientHeight/2,1/1.5);
+cv.addEventListener('dblclick',e=>zoomAt(e.offsetX,e.offsetY,1.8));
+function goHole(h,open=true){ S.view.cx=h.E; S.view.cy=h.N; if(S.view.k<3) S.view.k=3; if(open) openHole(h); else draw(); }
+$('#search').addEventListener('keydown',e=>{ if(e.key!=='Enter') return;
+  const q=e.target.value.trim(); if(!q) return;
+  const h=S.holes.find(x=>x.id===q)||S.holes.find(x=>x.id.endsWith(q))||S.holes.find(x=>x.id.startsWith(q));
+  if(!h){ toast('No existe el taladro '+q); return; } e.target.blur(); e.target.value=''; goHole(h); });
+function step(d){ const i=S.order.findIndex(x=>x.id===S.sel); if(i<0) return;
+  goHole(S.order[(i+d+S.order.length)%S.order.length]); }
+$('#btnPrev').onclick=()=>step(-1); $('#btnNextH').onclick=()=>step(1);
+$('#btnNext').onclick=()=>{
+  const g=gpsEN()||{E:S.view.cx,N:S.view.cy};
+  const pend=S.holes.filter(h=>!(S.logs.get(S.proj+'|'+h.id)||{}).estado);
+  if(!pend.length){ toast('No quedan taladros pendientes'); return; }
+  let b=pend[0],bd=1e18; for(const h of pend){ const d=Math.hypot(h.E-g.E,h.N-g.N); if(d<bd){bd=d;b=h;} }
+  S.sel=b.id; goHole(b,false); toast(`Pendiente más cercano: ${b.id} (${bd.toFixed(0)} m)`); };
+$('#btnCopy').onclick=()=>{ if(!S.last){ toast('Aún no guardaste ningún taladro'); return; }
+  for(const k of ['estado','lito','lito2','alter','mineral','intens','dureza','fractura','humedad']) if(S.last[k]!==undefined) S.draft[k]=Array.isArray(S.last[k])?[...S.last[k]]:S.last[k];
+  renderForm(); toast('Copiado del taladro '+S.last.id); };
+
+/* ---------- PC <-> celular: enlace del proyecto e importación de logueos ---------- */
+const b64u={ enc:u=>btoa(String.fromCharCode(...u)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
+             dec:t=>Uint8Array.from(atob(t.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)) };
+async function pipe(bytes,Stream,fmt){ return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new Stream(fmt))).arrayBuffer()); }
+async function projectLink(){
+  const txt=S.proj+'\n'+S.holes.map(h=>[h.id,h.E,h.N,isFinite(h.Z)?h.Z:''].join(',')).join('\n');
+  return location.origin+location.pathname+'#p='+b64u.enc(await pipe(new TextEncoder().encode(txt),CompressionStream,'gzip'));
+}
+async function importLink(str){
+  const m=String(str).match(/#p=([\w-]+)/); if(!m) throw new Error('El enlace no es válido');
+  const txt=new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'gzip'));
+  const [name,...rows]=txt.split('\n');
+  const holes=rows.filter(Boolean).map(r=>{const [id,E,N,Z]=r.split(',');return{id,E:+E,N:+N,Z:Z===''?NaN:+Z,proj:name};});
+  await idb.put('projects',{name,holes,added:Date.now()}); await refreshProjects(name);
+  toast(`Proyecto ${name}: ${holes.length} taladros`);
+}
+$('#cfgLink').onclick=async()=>{ if(!S.proj){toast('No hay proyecto');return;}
+  const l=await projectLink();
+  try{ await navigator.clipboard.writeText(l); toast('Enlace copiado. Envíalo al celular (WhatsApp/Teams/correo) y ábrelo allí',4500); }
+  catch{ prompt('Copia este enlace:',l); } };
+$('#cfgPaste').onclick=async()=>{ let t=''; try{ t=await navigator.clipboard.readText(); }catch{}
+  if(!/#p=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
+  if(!t) return; try{ await importLink(t); $('#cfg').close(); }catch(e){ toast(e.message,3500); } };
+$('#cfgImp').onclick=()=>$('#fileImp').click();
+
+function parseRows(txt){ const out=[]; let row=[],f='',q=false;
+  for(let i=0;i<txt.length;i++){ const c=txt[i];
+    if(q){ if(c==='"'){ if(txt[i+1]==='"'){f+='"';i++;} else q=false; } else f+=c; }
+    else if(c==='"') q=true; else if(c===','){row.push(f);f='';}
+    else if(c==='\n'||c==='\r'){ if(c==='\r'&&txt[i+1]==='\n') i++; row.push(f);f=''; if(row.length>1||row[0]!=='') out.push(row); row=[]; }
+    else f+=c; }
+  if(f!==''||row.length){row.push(f);out.push(row);} return out; }
+async function unzip(buf){ const v=new DataView(buf),u=new Uint8Array(buf),dec=new TextDecoder(),files=[]; let o=0;
+  while(o+30<=u.length&&v.getUint32(o,true)===0x04034b50){
+    const meth=v.getUint16(o+8,true),csz=v.getUint32(o+18,true),nl=v.getUint16(o+26,true),el=v.getUint16(o+28,true);
+    const name=dec.decode(u.subarray(o+30,o+30+nl)), st=o+30+nl+el; let d=u.subarray(st,st+csz);
+    if(meth===8) d=await pipe(d,DecompressionStream,'deflate-raw'); else if(meth!==0) throw new Error('ZIP no soportado');
+    files.push({name,data:d}); o=st+csz; }
+  return files; }
+async function importLogs(file){
+  let csv,photos=[];
+  if(/\.zip$/i.test(file.name)){ const fs=await unzip(await file.arrayBuffer());
+    const c=fs.find(f=>/logueo\.csv$/i.test(f.name)); if(!c) throw new Error('El ZIP no trae logueo.csv');
+    csv=new TextDecoder().decode(c.data); photos=fs.filter(f=>/^fotos\/.+\.jpe?g$/i.test(f.name)); }
+  else csv=await file.text();
+  const rows=parseRows(csv.replace(/^﻿/,'')); const head=rows.shift(); let n=0,sk=0;
+  for(const r of rows){ const l={}; head.forEach((k,i)=>l[k]=r[i]??'');
+    if(!l.proj||!l.id) continue;
+    for(const k of ['E','N','Z']) if(l[k]!==''&&isFinite(l[k])) l[k]=+l[k];
+    l.mineral=l.mineral?l.mineral.split('|'):[]; l.key=l.proj+'|'+l.id;
+    const cur=await idb.get('logs',l.key); if(cur&&cur.ts>=l.ts){ sk++; continue; }
+    if(!await idb.get('projects',l.proj)) await idb.put('projects',{name:l.proj,holes:[],added:Date.now()});
+    await idb.put('logs',l); n++;
+    const mine=photos.filter(p=>p.name.split('/')[1].startsWith(l.id+'_'));
+    if(mine.length&&!(await idb.all('photos','key',l.key)).length)
+      for(const p of mine) await idb.put('photos',{key:l.key,blob:new Blob([p.data],{type:'image/jpeg'}),ts:Date.now()}); }
+  await refreshProjects(S.proj); toast(`${n} logueos importados`+(sk?` (${sk} ya estaban más recientes)`:''),4000);
+}
+$('#fileImp').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  try{ await importLogs(f); $('#cfg').close(); }catch(err){ toast(err.message,4000); } };
+
+/* ---------- pantalla encendida mientras se usa el GPS ---------- */
+async function keepAwake(){ try{ S.wake=await navigator.wakeLock?.request('screen'); }catch{} }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&S.watch!=null) keepAwake(); });
+
 /* ---------- arranque ---------- */
 addEventListener('resize',resize);
 matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
 (async()=>{
   loadCfg(); await idb.open(); resize(); await refreshProjects();
+  if(/#p=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
   if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

@@ -28,14 +28,21 @@
     <span><i class="d ok"></i>Logueado</span>
     <span><i class="d obs"></i>Sin acceso/otro</span>
   </div>
-  <button id="btnGps" class="fab">◎</button>
+  <input id="search" type="search" placeholder="🔍 N° taladro" autocomplete="off" enterkeyhint="go">
   <div id="gpsInfo"></div>
+  <div id="ctrl">
+    <button id="btnZin" title="Acercar">＋</button>
+    <button id="btnZout" title="Alejar">－</button>
+    <button id="btnFit" title="Ver toda la malla">⤢</button>
+    <button id="btnNext" title="Ir al siguiente pendiente más cercano">⏭</button>
+    <button id="btnGps" class="fab" title="Mi posición">◎</button>
+  </div>
 </main>
 
 <section id="sheet" hidden>
   <div class="sheet-head">
     <div><b id="holeTitle"></b><small id="holeSub"></small></div>
-    <button id="btnClose" class="ghost">✕</button>
+    <div class="nav"><button id="btnPrev" class="ghost">◀</button><button id="btnNextH" class="ghost">▶</button><button id="btnClose" class="ghost">✕</button></div>
   </div>
   <form id="form" autocomplete="off"></form>
   <div class="photos">
@@ -44,6 +51,7 @@
     <input id="filePhoto" type="file" accept="image/*" capture="environment" multiple hidden>
   </div>
   <div class="sheet-foot">
+    <button id="btnCopy" class="ghost" type="button" title="Copiar los datos geológicos del último taladro guardado">↺ Anterior</button>
     <button id="btnCal" class="ghost" type="button" title="Estoy parado sobre este taladro: corregir desplazamiento del GPS">📍 Calibrar aquí</button>
     <button id="btnSave" class="primary" type="button">Guardar</button>
   </div>
@@ -57,6 +65,12 @@
     <select id="cfgHemi"><option value="S">Sur</option><option value="N">Norte</option></select>
   </label>
   <p id="cfgOff"></p>
+  <div class="row">
+    <button id="cfgLink" class="ghost" type="button">🔗 Copiar enlace del proyecto</button>
+    <button id="cfgPaste" class="ghost" type="button">📋 Pegar enlace</button>
+    <button id="cfgImp" class="ghost" type="button">📥 Importar logueos (.zip/.csv)</button>
+    <input id="fileImp" type="file" accept=".zip,.csv,text/csv,application/zip" hidden>
+  </div>
   <div class="row">
     <button id="cfgResetOff" class="ghost" type="button">Quitar calibración</button>
     <button id="cfgWipe" class="danger" type="button">Borrar datos del proyecto</button>

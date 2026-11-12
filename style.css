@@ -30,10 +30,12 @@ main{position:relative;flex:1;min-height:0}
   border-radius:10px;padding:6px 10px;font-size:13px;display:flex;flex-direction:column;gap:2px}
 .d{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px}
 .d.pend{background:var(--pend)}.d.ok{background:var(--ok)}.d.obs{background:var(--obs)}
-.fab{position:absolute;right:12px;bottom:12px;width:60px;height:60px;border-radius:50%;
-  font-size:28px;padding:0;background:var(--pri);color:#fff;border:none;box-shadow:0 2px 8px #0005}
-#gpsInfo{position:absolute;right:12px;bottom:80px;font-size:12px;background:var(--card);
-  border:1px solid var(--line);border-radius:8px;padding:4px 8px;max-width:60%;text-align:right}
+#ctrl{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;align-items:center}
+#ctrl button{width:48px;height:48px;border-radius:50%;padding:0;font-size:22px;box-shadow:0 2px 6px #0004}
+#ctrl .fab{width:60px;height:60px;font-size:28px;background:var(--pri);color:#fff;border:none}
+#search{position:absolute;top:10px;right:10px;width:140px}
+#gpsInfo{position:absolute;top:52px;left:10px;font-size:12px;background:var(--card);
+  border:1px solid var(--line);border-radius:8px;padding:4px 8px;max-width:70%}
 #gpsInfo:empty{display:none}
 
 #sheet{position:fixed;left:0;right:0;bottom:0;max-height:82vh;overflow:auto;background:var(--card);
@@ -67,3 +69,5 @@ dialog .row .primary{flex:1}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#111c;color:#fff;
   padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
+.nav{display:flex;gap:4px}
+.nav button{min-width:44px;padding:8px}
