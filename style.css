@@ -126,3 +126,6 @@ dialog .row>button{flex:1;white-space:nowrap}
   z-index:30;max-width:90vw;text-align:center;box-shadow:var(--shadow)}
 #toast.show{opacity:1}
 .noproj #search,.noproj #legend,.noproj #ctrl,.noproj #gpsInfo{display:none}
+.psel{width:22px;height:22px;min-height:0;accent-color:var(--pri);flex:none}
+.qrnav{display:flex;align-items:center;justify-content:space-between;margin:6px 0}
+button:disabled{opacity:.45}

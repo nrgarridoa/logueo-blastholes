@@ -25,7 +25,7 @@
   <button id="btnCsv" class="ib" title="Cargar CSV de taladros"><i class="ic" data-ic="file"></i></button>
   <button id="btnExport" class="ib" title="Exportar logueos"><i class="ic" data-ic="upload"></i></button>
   <button id="btnCfg" class="ib" title="Ajustes"><i class="ic" data-ic="sliders"></i></button>
-  <input id="fileCsv" type="file" accept=".csv,.txt,text/csv" hidden>
+  <input id="fileCsv" type="file" accept=".csv,.txt,text/csv" multiple hidden>
 </header>
 <div id="bar"><i></i></div>
 
@@ -93,13 +93,17 @@
   <div class="dlg-head"><h3>Proyectos</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
   <div id="projList"></div>
   <div class="row">
-    <button id="pCsv" class="primary"><i class="ic" data-ic="file"></i>Cargar CSV</button>
+    <button id="pQr" class="primary"><i class="ic" data-ic="qr"></i>QR de salida <span id="pQrN"></span></button>
+  </div>
+  <div class="row">
+    <button id="pCsv" class="ghost"><i class="ic" data-ic="file"></i>Cargar CSV(s)</button>
     <button id="pPaste" class="ghost"><i class="ic" data-ic="clipboard"></i>Pegar enlace</button>
   </div>
 </dialog>
 
 <dialog id="qrDlg">
   <div class="dlg-head"><h3 id="qrTitle">Enviar al celular</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
+  <div class="qrnav"><button id="qrPrev" class="ib"><i class="ic" data-ic="left"></i></button><b id="qrPart"></b><button id="qrNext" class="ib"><i class="ic" data-ic="right"></i></button></div>
   <canvas id="qrCv"></canvas>
   <p class="muted" id="qrNote"></p>
   <div class="row">

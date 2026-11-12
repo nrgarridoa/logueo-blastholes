@@ -31,7 +31,7 @@ const $ = s => document.querySelector(s);
 
 /* ---------- iconos (SVG propios, trazo 2px) ---------- */
 const AUTOR={nombre:'nrgarridoa',url:'https://github.com/nrgarridoa',repo:'https://github.com/nrgarridoa/logueo-blastholes'};
-const VERSION='1.3';
+const VERSION='1.4';
 const IC={
   layers:'<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
   file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>',
@@ -337,13 +337,16 @@ $('#gpsInfo').onclick=()=>{ if(S.near) openHole(S.near); };
 /* ---------- carga CSV ---------- */
 $('#btnCsv').onclick=()=>$('#fileCsv').click();
 $('#fileCsv').onchange=async e=>{
-  const f=e.target.files[0]; e.target.value=''; if(!f) return;
-  const holes=parseCSV(await f.text());
-  if(!holes.length){ toast('No se encontraron taladros en el CSV',3500); return; }
-  const name=holes[0].proj||f.name.replace(/\.\w+$/,'');
-  if(await idb.get('projects',name) && !confirm(`El proyecto ${name} ya existe. ¿Reemplazar los taladros? (los logueos se conservan)`)) return;
-  await idb.put('projects',{name,holes,added:Date.now()});
-  await refreshProjects(name); if($('#projDlg').open) $('#projDlg').close(); toast(`${holes.length} taladros cargados`);
+  const files=[...e.target.files]; e.target.value=''; if(!files.length) return;
+  const groups=new Map();                                  // varios CSV, o un CSV con varios proyectos
+  for(const f of files){ const base=f.name.replace(/\.\w+$/,'');
+    for(const h of parseCSV(await f.text())){ const nm=h.proj||base; h.proj=nm; if(!groups.has(nm)) groups.set(nm,[]); groups.get(nm).push(h); } }
+  if(!groups.size){ toast('No se encontraron taladros en los CSV',3500); return; }
+  const exist=[]; for(const nm of groups.keys()) if(await idb.get('projects',nm)) exist.push(nm);
+  if(exist.length&&!confirm(`Ya existen: ${exist.join(', ')}. ¿Reemplazar sus taladros? (los logueos se conservan)`)) return;
+  let last,total=0; for(const [nm,hs] of groups){ await idb.put('projects',{name:nm,holes:hs,added:Date.now()}); last=nm; total+=hs.length; }
+  await refreshProjects(last); if($('#projDlg').open) renderProjects();
+  toast(`${groups.size} proyecto${groups.size>1?'s':''} · ${total} taladros cargados`,3500);
 };
 
 /* ---------- ajustes ---------- */
@@ -431,22 +434,51 @@ function unpackHoles(txt){
     return {id,E:pE/100,N:pN/100,Z,proj:name}; });
   return {name,holes};
 }
-async function projectLink(name){
-  const p=await idb.get('projects',name);
-  const z=await pipe(new TextEncoder().encode(packHoles(p.name,p.holes)),CompressionStream,'deflate-raw');
-  return location.origin+location.pathname+'#q='+b64u.enc(z);
+/* paquete de salida: varios proyectos por enlace/QR; si no caben, se reparten en partes */
+const MAXQR=1400;                       // caracteres máximos por QR (legible en pantalla de PC)
+const PK='\u0001';
+async function rawLink(names,part,total){
+  const blocks=[];
+  for(const n of names){ const p=await idb.get('projects',n); blocks.push(PK+packHoles(p.name,p.holes)); }
+  const z=await pipe(new TextEncoder().encode(`${part}/${total}\n`+blocks.join('\n')),CompressionStream,'deflate-raw');
+  return location.origin+location.pathname+'#b='+b64u.enc(z);
 }
+async function bundleLinks(names){
+  const groups=[[]];
+  for(const n of names){ const cur=groups[groups.length-1];
+    if(cur.length&&(await rawLink([...cur,n],1,1)).length>MAXQR) groups.push([n]); else cur.push(n); }
+  return Promise.all(groups.map(async(g,i)=>({names:g,link:await rawLink(g,i+1,groups.length)})));
+}
+function unpackBundle(txt){
+  const lines=txt.split('\n'); const [part,total]=lines.shift().split('/').map(Number);
+  const projects=[]; let cur=null,pI=0,pE=0,pN=0,pZ=0;
+  for(const l of lines){ if(!l) continue;
+    if(l[0]===PK){ cur={name:l.slice(1),holes:[]}; projects.push(cur); pI=pE=pN=pZ=0; continue; }
+    const [a,b,c,d]=l.split(','); let id; if(a[0]==='=') id=a.slice(1); else { pI+=parseInt(a,36); id=String(pI); }
+    pE+=parseInt(b,36); pN+=parseInt(c,36); let Z=NaN; if(d!=='n'){ pZ+=parseInt(d,36); Z=pZ/10; }
+    cur.holes.push({id,E:pE/100,N:pN/100,Z,proj:cur.name}); }
+  return {part,total,projects};
+}
+const got={total:0,parts:new Set(),t:0};
 async function importLink(str){
-  let m=String(str).match(/#q=([\w-]+)/), data;
-  if(m) data=unpackHoles(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw')));
-  else { m=String(str).match(/#p=([\w-]+)/); if(!m) throw new Error('El enlace no es válido');   // formato anterior
+  str=String(str); let m, projects, part=1,total=1;
+  if(m=str.match(/#b=([\w-]+)/)){
+    ({part,total,projects}=unpackBundle(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw')))); }
+  else if(m=str.match(/#q=([\w-]+)/)){                                 // formato anterior
+    const d=unpackHoles(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw'))); projects=[d]; }
+  else if(m=str.match(/#p=([\w-]+)/)){                                 // formato más antiguo
     const [name,...rows]=new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'gzip')).split('\n');
-    data={name,holes:rows.filter(Boolean).map(r=>{const [id,E,N,Z]=r.split(',');return{id,E:+E,N:+N,Z:Z===''?NaN:+Z,proj:name};})}; }
-  await idb.put('projects',{name:data.name,holes:data.holes,added:Date.now()}); await refreshProjects(data.name);
-  toast(`Proyecto ${data.name}: ${data.holes.length} taladros`);
+    projects=[{name,holes:rows.filter(Boolean).map(r=>{const [id,E,N,Z]=r.split(',');return{id,E:+E,N:+N,Z:Z===''?NaN:+Z,proj:name};})}]; }
+  else throw new Error('El enlace no es válido');
+  for(const p of projects) await idb.put('projects',{name:p.name,holes:p.holes,added:Date.now()});
+  await refreshProjects(projects[projects.length-1].name);
+  if(total>1){ if(got.total!==total||Date.now()-got.t>3600e3){ got.total=total; got.parts=new Set(); }
+    got.parts.add(part); got.t=Date.now(); const left=total-got.parts.size;
+    toast(left?`Parte ${part} de ${total} cargada. Faltan ${left} por escanear`:`Paquete completo: ${total} partes cargadas`,4500); }
+  else toast(projects.length>1?`${projects.length} proyectos cargados`:`Proyecto ${projects[0].name}: ${projects[0].holes.length} taladros`);
 }
 async function pasteLink(){ let t=''; try{ t=await navigator.clipboard.readText(); }catch{}
-  if(!/#[qp]=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
+  if(!/#[qpb]=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
   if(!t) return; try{ await importLink(t); $('#projDlg').close(); }catch(e){ toast(e.message,3500); } }
 $('#cfgImp').onclick=()=>$('#fileImp').click();
 
@@ -493,6 +525,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 
 /* ---------- panel de proyectos (varios proyectos en campo) ---------- */
 function fmtDist(m){ return m<1000?Math.round(m)+' m':(m/1000).toFixed(m<10000?1:0)+' km'; }
+const unpick=new Set();            // proyectos desmarcados para la salida (por defecto van todos)
 async function renderProjects(){
   const ps=await idb.all('projects'), logs=await idb.all('logs'), done={};
   logs.forEach(l=>{ if(l.estado) done[l.proj]=(done[l.proj]||0)+1; });
@@ -502,19 +535,23 @@ async function renderProjects(){
     return {p,n,dn:done[p.name]||0,d}; });
   rows.sort((a,b)=>(a.d!=null&&b.d!=null)?a.d-b.d:a.p.name.localeCompare(b.p.name));
   const box=$('#projList');
-  if(!rows.length){ box.innerHTML='<div class="pnone">Aún no hay proyectos.<br>Carga un CSV o pega un enlace.</div>'; return; }
+  if(!rows.length){ box.innerHTML='<div class="pnone">Aún no hay proyectos.<br>Carga uno o varios CSV, o pega un enlace.</div>'; updatePick(); return; }
   box.innerHTML=rows.map(r=>{ const pct=r.n?Math.round(r.dn*100/r.n):0;
     return `<div class="prow${r.p.name===S.proj?' cur':''}" data-n="${esc(r.p.name)}">
+      <input type="checkbox" class="psel" ${unpick.has(r.p.name)?'':'checked'} title="Incluir en el paquete de salida">
       <div class="pmain" data-a="open"><b>${esc(r.p.name)}</b>
         <small>${r.dn} / ${r.n} taladros · ${pct}%${r.d!=null?' · a '+fmtDist(r.d):''}</small>
         <div class="pbar"><i style="width:${pct}%"></i></div></div>
       <div class="pact">
-        <button class="ib" data-a="qr" title="QR / enlace para el celular"><i class="ic" data-ic="qr"></i></button>
         <button class="ib" data-a="exp" title="Exportar logueos"><i class="ic" data-ic="upload"></i></button>
         <button class="ib" data-a="del" title="Borrar proyecto"><i class="ic" data-ic="trash"></i></button>
       </div></div>`; }).join('');
-  hydrate(box);
+  hydrate(box); updatePick();
 }
+function pickedNames(){ return [...document.querySelectorAll('#projList .prow')].filter(r=>r.querySelector('.psel').checked).map(r=>r.dataset.n); }
+function updatePick(){ const n=pickedNames().length; $('#pQr').disabled=!n; $('#pQrN').textContent=n?`(${n})`:''; }
+$('#projList').addEventListener('change',e=>{ if(!e.target.classList.contains('psel')) return;
+  const n=e.target.closest('.prow').dataset.n; e.target.checked?unpick.delete(n):unpick.add(n); updatePick(); });
 async function openProjectsPanel(){
   $('#projDlg').showModal(); renderProjects();
   try{ const st=await navigator.permissions?.query({name:'geolocation'});     // si ya hay permiso, ordenar por cercanía
@@ -536,26 +573,33 @@ $('#projList').addEventListener('click',async e=>{
   const b=e.target.closest('[data-a]'); if(!b) return; const name=b.closest('.prow').dataset.n;
   if(b.dataset.a==='open'){ await openProject(name); $('#projDlg').close(); }
   else if(b.dataset.a==='exp') exportProject(name);
-  else if(b.dataset.a==='qr') showQR(name);
   else if(b.dataset.a==='del'){ if(await wipeProject(name)){ await refreshProjects(name===S.proj?undefined:S.proj); renderProjects(); } }
 });
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 
 /* ---------- QR del proyecto ---------- */
-let qrLink='';
-async function showQR(name){
-  qrLink=await projectLink(name); $('#qrTitle').textContent=name;
-  const cvq=$('#qrCv'), note=$('#qrNote');
-  note.textContent=`Escanéalo con la cámara del celular. Enlace de ${qrLink.length} caracteres.`;
-  try{ const qr=qrcode(0,'L'); qr.addData(qrLink); qr.make();
-    const n=qr.getModuleCount(), sc=Math.max(2,Math.floor(300/(n+8))), size=(n+8)*sc; cvq.width=cvq.height=size;
+let qrParts=[],qrIdx=0;
+async function showBundleQR(){
+  const names=pickedNames(); if(!names.length){ toast('Marca al menos un proyecto'); return; }
+  qrParts=await bundleLinks(names); qrIdx=0; drawQR(); $('#projDlg').close(); $('#qrDlg').showModal();
+}
+function drawQR(){
+  const part=qrParts[qrIdx], tot=qrParts.length, cvq=$('#qrCv'), note=$('#qrNote');
+  $('#qrTitle').textContent=tot>1?'Paquete de salida':part.names[0];
+  $('#qrPart').textContent=tot>1?`Parte ${qrIdx+1} de ${tot}`:'';
+  $('.qrnav').style.display=tot>1?'flex':'none';
+  note.textContent=(tot>1?`Escanea las ${tot} partes, una tras otra. `:'Escanéalo con la cámara del celular. ')+'Esta parte: '+part.names.join(', ')+'.';
+  try{ const qr=qrcode(0,'L'); qr.addData(part.link); qr.make();
+    const n=qr.getModuleCount(), sc=Math.max(2,Math.floor(320/(n+8))), size=(n+8)*sc; cvq.width=cvq.height=size;
     const c=cvq.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,size,size); c.fillStyle='#000';
     for(let r=0;r<n;r++)for(let q=0;q<n;q++) if(qr.isDark(r,q)) c.fillRect((q+4)*sc,(r+4)*sc,sc,sc);
-    cvq.style.display='block'; cvq.style.width=Math.min(size,300)+'px';
-  }catch{ cvq.style.display='none'; note.textContent='El proyecto es muy grande para un QR. Copia el enlace y envíalo por WhatsApp o Teams.'; }
-  $('#qrDlg').showModal();
+    cvq.style.display='block'; cvq.style.width=Math.min(size,320)+'px';
+  }catch{ cvq.style.display='none'; note.textContent='Este proyecto es muy grande para un QR. Copia el enlace y envíalo por WhatsApp o Teams, o comparte el CSV.'; }
 }
-$('#qrCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(qrLink); toast('Enlace copiado'); }catch{ prompt('Copia este enlace:',qrLink); } };
+$('#qrPrev').onclick=()=>{ qrIdx=(qrIdx-1+qrParts.length)%qrParts.length; drawQR(); };
+$('#qrNext').onclick=()=>{ qrIdx=(qrIdx+1)%qrParts.length; drawQR(); };
+$('#qrCopy').onclick=async()=>{ const l=qrParts[qrIdx].link; try{ await navigator.clipboard.writeText(l); toast('Enlace copiado'); }catch{ prompt('Copia este enlace:',l); } };
+$('#pQr').onclick=showBundleQR;
 
 /* ---------- acerca de ---------- */
 function setupAbout(){
@@ -570,7 +614,7 @@ addEventListener('resize',resize);
 matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
 (async()=>{
   loadCfg(); hydrate(); setupAbout(); await idb.open(); resize(); await refreshProjects();
-  if(/#[qp]=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
+  if(/#[qpb]=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
   if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
