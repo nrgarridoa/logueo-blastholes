@@ -28,6 +28,36 @@ const FIELDS = [
 /* ============================================================================ */
 
 const $ = s => document.querySelector(s);
+
+/* ---------- iconos (SVG propios, trazo 2px) ---------- */
+const AUTOR={nombre:'nrgarridoa',url:'https://github.com/nrgarridoa',repo:'https://github.com/nrgarridoa/logueo-blastholes'};
+const VERSION='1.3';
+const IC={
+  layers:'<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
+  file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>',
+  upload:'<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v5h16v-5"/>',
+  download:'<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/>',
+  sliders:'<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  locate:'<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  minus:'<path d="M5 12h14"/>',
+  fit:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  next:'<path d="M5 5v14l10-7z"/><path d="M19 5v14"/>',
+  left:'<path d="m15 5-7 7 7 7"/>',
+  right:'<path d="m9 5 7 7-7 7"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>',
+  check:'<path d="m5 12 5 5 9-10"/>',
+  history:'<path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v5h5"/><path d="M12 8v4l3 2"/>',
+  pin:'<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  clipboard:'<rect x="6" y="5" width="12" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/>',
+  trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
+  qr:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M14 21h3M21 17v4"/>',
+};
+function hydrate(root=document){ root.querySelectorAll('[data-ic]').forEach(el=>{
+  if(el.firstChild) return; el.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+(IC[el.dataset.ic]||'')+'</svg>'; }); }
 const cv = $('#map'), ctx = cv.getContext('2d');
 const S = { proj:null, holes:[], logs:new Map(), sel:null, draft:{}, view:{cx:0,cy:0,k:1},
             gps:null, watch:null, near:null, last:null, bounds:null, fitK:1, order:[], wake:null, cfg:{user:'',zone:19,hemi:'S',dE:0,dN:0}, cssv:{} };
@@ -93,13 +123,11 @@ function parseCSV(txt){
 /* ---------- proyectos ---------- */
 async function refreshProjects(sel){
   const ps = await idb.all('projects');
-  const el=$('#projSel'); el.innerHTML='';
+  if(!ps.length){ S.proj=null; S.holes=[]; S.logs=new Map(); S.order=[]; S.bounds=null; $('#sheet').hidden=true; draw(); updateProgress(); return; }
   ps.sort((a,b)=>a.name.localeCompare(b.name));
-  ps.forEach(p=>el.add(new Option(p.name,p.name)));
-  if(!ps.length){ S.proj=null; S.holes=[]; S.logs=new Map(); draw(); updateProgress(); return; }
-  const want = sel && ps.find(p=>p.name===sel) ? sel : (localStorage.getItem('proj')||ps[0].name);
-  el.value = ps.find(p=>p.name===want)?want:ps[0].name;
-  await openProject(el.value);
+  let want = sel && ps.find(p=>p.name===sel) ? sel : null;
+  if(!want){ let last=''; try{ last=localStorage.getItem('proj')||''; }catch{} want=ps.find(p=>p.name===last)?last:ps[0].name; }
+  await openProject(want);
 }
 async function openProject(name){
   const p=await idb.get('projects',name); if(!p) return;
@@ -109,9 +137,12 @@ async function openProject(name){
   fitView(); draw(); updateProgress();
 }
 function updateProgress(){
-  const n=S.holes.length, done=[...S.logs.values()].filter(l=>l.estado).length;
-  $('#progress').textContent = n? `${done} / ${n} taladros`:'';
+  const n=S.holes.length, done=[...S.logs.values()].filter(l=>l.estado).length, pct=n?Math.round(done*100/n):0;
+  $('#projName').textContent=S.proj||'Sin proyecto';
+  $('#projPct').textContent=n?`${done}/${n}`:'';
+  $('#bar i').style.width=pct+'%';
   $('#empty').style.display = n?'none':'flex';
+  $('main').classList.toggle('noproj',!n);
 }
 
 /* ---------- mapa ---------- */
@@ -135,7 +166,7 @@ const s2w=(x,y)=>[(x-cv.clientWidth/2)/S.view.k+S.view.cx,S.view.cy-(y-cv.client
 function resize(){ const d=devicePixelRatio||1;
   cv.width=cv.clientWidth*d; cv.height=cv.clientHeight*d; ctx.setTransform(d,0,0,d,0,0); draw(); }
 function cssv(){ const s=getComputedStyle(document.documentElement);
-  ['pend','ok','obs','sel','lbl','mapbg'].forEach(k=>S.cssv[k]=s.getPropertyValue('--'+k).trim()); }
+  ['pend','ok','obs','sel','lbl','mapbg','grid','halo','dotline'].forEach(k=>S.cssv[k]=s.getPropertyValue('--'+k).trim()); }
 function colorFor(h){ const l=S.logs.get(S.proj+'|'+h.id);
   if(!l||!l.estado) return S.cssv.pend; return l.estado==='Logueado'?S.cssv.ok:S.cssv.obs; }
 
@@ -143,34 +174,45 @@ let raf=0; function draw(){ if(raf) return; raf=requestAnimationFrame(()=>{raf=0
 function render(){
   cssv(); const w=cv.clientWidth,h=cv.clientHeight; ctx.clearRect(0,0,w,h);
   if(!S.holes.length) return;
-  ctx.font='600 11px system-ui'; ctx.textBaseline='middle';
-  const rad=Math.min(9,Math.max(3,S.view.k*1.4)), placed=[], labels=[];
+  // cuadrícula métrica de fondo
+  const nice=[1,2,5,10,20,50,100,200,500,1000]; const gs=nice.find(v=>v*S.view.k>=36)||1000;
+  const [w0,n0]=s2w(0,0),[w1,n1]=s2w(w,h);
+  ctx.lineWidth=1; ctx.strokeStyle=S.cssv.grid; ctx.beginPath();
+  for(let E=Math.ceil(w0/gs)*gs;E<=w1;E+=gs){ const [x]=w2s(E,0); ctx.moveTo(Math.round(x)+.5,0); ctx.lineTo(Math.round(x)+.5,h); }
+  for(let N=Math.ceil(n1/gs)*gs;N<=n0;N+=gs){ const [,y]=w2s(0,N); ctx.moveTo(0,Math.round(y)+.5); ctx.lineTo(w,Math.round(y)+.5); }
+  ctx.stroke();
+  ctx.font='700 11px system-ui'; ctx.textBaseline='middle'; ctx.lineJoin='round';
+  const rad=Math.min(9,Math.max(3.5,S.view.k*1.4)), placed=[], labels=[];
   for(const p of S.holes){
     const [x,y]=w2s(p.E,p.N); if(x<-30||y<-30||x>w+30||y>h+30) continue;
+    if(S.sel===p.id){ ctx.beginPath(); ctx.arc(x,y,rad+7,0,7); ctx.fillStyle=S.cssv.sel+'55'; ctx.fill(); }
     ctx.beginPath(); ctx.arc(x,y,rad,0,7); ctx.fillStyle=colorFor(p); ctx.fill();
-    if(S.sel===p.id){ ctx.lineWidth=3; ctx.strokeStyle=S.cssv.sel; ctx.stroke(); }
+    ctx.lineWidth=1.8; ctx.strokeStyle=S.sel===p.id?S.cssv.sel:S.cssv.dotline; ctx.stroke();
     labels.push([p,x,y]);
   }
   labels.sort((a,b)=>(b[0].id===S.sel)-(a[0].id===S.sel));
   for(const [p,x,y] of labels){
-    const tw=ctx.measureText(p.id).width, bx=x+rad+2, by=y-rad-9, bw=tw+4, bh=13;
+    const tw=ctx.measureText(p.id).width, bx=x+rad+2, by=y-6.5, bw=tw+4, bh=13;
     if(p.id!==S.sel && placed.some(r=>bx<r[0]+r[2]&&bx+bw>r[0]&&by<r[1]+r[3]&&by+bh>r[1])) continue;
-    placed.push([bx,by,bw,bh]); ctx.fillStyle=S.cssv.lbl; ctx.fillText(p.id,bx+2,by+bh/2);
+    placed.push([bx,by,bw,bh]);
+    ctx.lineWidth=3; ctx.strokeStyle=S.cssv.halo; ctx.strokeText(p.id,bx+2,by+bh/2);
+    ctx.fillStyle=S.cssv.lbl; ctx.fillText(p.id,bx+2,by+bh/2);
   }
   const gp=gpsEN(), sh=S.sel&&S.holes.find(x=>x.id===S.sel);
   if(gp&&sh){ const [a,b]=w2s(gp.E,gp.N),[c,d]=w2s(sh.E,sh.N);
     ctx.setLineDash([6,5]); ctx.lineWidth=2; ctx.strokeStyle='#ef4444'; ctx.beginPath(); ctx.moveTo(a,b); ctx.lineTo(c,d); ctx.stroke(); ctx.setLineDash([]); }
-  const nice=[1,2,5,10,20,50,100,200,500,1000]; const m=nice.find(v=>v*S.view.k>=70)||1000, px=m*S.view.k;
-  ctx.strokeStyle=S.cssv.lbl; ctx.fillStyle=S.cssv.lbl; ctx.lineWidth=2; ctx.font='600 12px system-ui';
-  ctx.beginPath(); ctx.moveTo(12,h-92); ctx.lineTo(12+px,h-92); ctx.moveTo(12,h-97); ctx.lineTo(12,h-87); ctx.moveTo(12+px,h-97); ctx.lineTo(12+px,h-87); ctx.stroke();
-  ctx.fillText(m+' m',16,h-102);
-  ctx.beginPath(); ctx.moveTo(w-30,62); ctx.lineTo(w-38,88); ctx.lineTo(w-30,82); ctx.lineTo(w-22,88); ctx.closePath(); ctx.fill();
-  ctx.fillText('N',w-35,100);
   const g=gpsEN();
   if(g){ const [x,y]=w2s(g.E,g.N), acc=(S.gps.acc||5)*S.view.k;
-    ctx.beginPath(); ctx.arc(x,y,Math.max(acc,8),0,7); ctx.fillStyle='#ef444422'; ctx.fill();
-    ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.fillStyle='#ef4444'; ctx.fill();
-    ctx.lineWidth=2.5; ctx.strokeStyle='#fff'; ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(x,y,Math.max(acc,9),0,7); ctx.fillStyle='#ef444422'; ctx.fill();
+    ctx.beginPath(); ctx.arc(x,y,7.5,0,7); ctx.fillStyle='#ef4444'; ctx.fill();
+    ctx.lineWidth=3; ctx.strokeStyle='#fff'; ctx.stroke(); }
+  // escala y norte
+  const m=nice.find(v=>v*S.view.k>=70)||1000, px=m*S.view.k, by=h-96;
+  ctx.strokeStyle=S.cssv.lbl; ctx.fillStyle=S.cssv.lbl; ctx.lineWidth=2; ctx.font='700 12px system-ui';
+  ctx.beginPath(); ctx.moveTo(14,by); ctx.lineTo(14+px,by); ctx.moveTo(14,by-5); ctx.lineTo(14,by+5); ctx.moveTo(14+px,by-5); ctx.lineTo(14+px,by+5); ctx.stroke();
+  ctx.fillText(m+' m',18,by-11);
+  ctx.beginPath(); ctx.moveTo(w-30,62); ctx.lineTo(w-38,88); ctx.lineTo(w-30,82); ctx.lineTo(w-22,88); ctx.closePath(); ctx.fill();
+  ctx.fillText('N',w-35,100);
 }
 function nearestTo(E,N,maxM=Infinity){ let best=null,bd=maxM;
   for(const p of S.holes){ const d=Math.hypot(p.E-E,p.N-N); if(d<bd){bd=d;best=p;} }
@@ -262,7 +304,7 @@ $('#btnSave').onclick=async()=>{
     gps_E:g?+g.E.toFixed(2):'',gps_N:g?+g.N.toFixed(2):'',gps_acc:S.gps?+(S.gps.acc||0).toFixed(1):'',
     gps_dist:g?+Math.hypot(g.E-h.E,g.N-h.N).toFixed(1):''};
   await idb.put('logs',rec); S.logs.set(rec.key,rec); S.last=rec;
-  $('#sheet').hidden=true; S.sel=null; updateProgress(); draw(); toast('Taladro '+h.id+' guardado ✓');
+  $('#sheet').hidden=true; S.sel=null; updateProgress(); draw(); toast('Taladro '+h.id+' guardado');
 };
 $('#btnCal').onclick=()=>{
   if(!S.gps){ toast('Activa el GPS (◎) primero'); return; }
@@ -301,9 +343,8 @@ $('#fileCsv').onchange=async e=>{
   const name=holes[0].proj||f.name.replace(/\.\w+$/,'');
   if(await idb.get('projects',name) && !confirm(`El proyecto ${name} ya existe. ¿Reemplazar los taladros? (los logueos se conservan)`)) return;
   await idb.put('projects',{name,holes,added:Date.now()});
-  await refreshProjects(name); toast(`${holes.length} taladros cargados`);
+  await refreshProjects(name); if($('#projDlg').open) $('#projDlg').close(); toast(`${holes.length} taladros cargados`);
 };
-$('#projSel').onchange=e=>openProject(e.target.value);
 
 /* ---------- ajustes ---------- */
 function offTxt(){ $('#cfgOff').textContent=`Calibración GPS: ΔE ${S.cfg.dE.toFixed(1)} m, ΔN ${S.cfg.dN.toFixed(1)} m`; }
@@ -311,13 +352,6 @@ $('#btnCfg').onclick=()=>{ $('#cfgUser').value=S.cfg.user; $('#cfgZone').value=S
 $('#cfgOk').onclick=()=>{ S.cfg.user=$('#cfgUser').value.trim(); S.cfg.zone=+$('#cfgZone').value||19; S.cfg.hemi=$('#cfgHemi').value;
   saveCfg(); $('#cfg').close(); draw(); };
 $('#cfgResetOff').onclick=()=>{ S.cfg.dE=S.cfg.dN=0; saveCfg(); offTxt(); draw(); };
-$('#cfgWipe').onclick=async()=>{
-  if(!S.proj||!confirm(`¿Borrar el proyecto ${S.proj} con TODOS sus logueos y fotos de este equipo? Exporta antes.`)) return;
-  for(const l of await idb.all('logs','proj',S.proj)){ for(const p of await idb.all('photos','key',l.key)) await idb.del('photos',p.id); await idb.del('logs',l.key); }
-  for(const p of await idb.all('photos')) if(p.key.startsWith(S.proj+'|')) await idb.del('photos',p.id);
-  await idb.del('projects',S.proj); $('#cfg').close(); await refreshProjects();
-};
-
 /* ---------- exportar (ZIP: logueo.csv + fotos) ---------- */
 const COLS=['proj','id','E','N','Z','estado','lito','lito2','alter','mineral','intens','dureza','fractura','humedad',
   'contacto','contacto_m','prof','obs','user','ts','gps_E','gps_N','gps_acc','gps_dist'];
@@ -334,9 +368,8 @@ function zip(files){ // almacenado sin compresión
   const cl=cen.reduce((a,b)=>a+b.length,0);
   return new Blob([...parts,...cen,new Uint8Array([0x50,0x4b,5,6,0,0,0,0,...u16(files.length),...u16(files.length),...u32(cl),...u32(off),0,0])],{type:'application/zip'});
 }
-$('#btnExport').onclick=async()=>{
-  if(!S.proj){ toast('No hay proyecto'); return; }
-  const logs=await idb.all('logs','proj',S.proj); if(!logs.length){ toast('Aún no hay logueos'); return; }
+async function exportProject(name){
+  const logs=await idb.all('logs','proj',name); if(!logs.length){ toast('Aún no hay logueos en '+name); return; }
   const q=v=>{const s=Array.isArray(v)?v.join('|'):String(v??'');return /[",;\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
   const csv='﻿'+COLS.join(',')+'\n'+logs.sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true}))
     .map(l=>COLS.map(c=>q(l[c])).join(',')).join('\n');
@@ -344,11 +377,12 @@ $('#btnExport').onclick=async()=>{
   const keyId=new Map(logs.map(l=>[l.key,l.id])); let n=0;
   for(const p of await idb.all('photos')){ const id=keyId.get(p.key); if(!id) continue;
     files.push({name:`fotos/${id}_${++n}.jpg`,data:new Uint8Array(await p.blob.arrayBuffer())}); }
-  const d=new Date().toISOString().slice(0,10), fn=`${S.proj}_logueo_${(S.cfg.user||'user').replace(/\W+/g,'')}_${d}.zip`;
+  const d=new Date().toISOString().slice(0,10), fn=`${name}_logueo_${(S.cfg.user||'user').replace(/\W+/g,'')}_${d}.zip`;
   const blob=zip(files), file=new File([blob],fn,{type:'application/zip'});
   if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file],title:fn}); return; }catch(e){ if(e.name==='AbortError') return; } }
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fn; a.click(); toast('Descargado '+fn,3500);
-};
+}
+$('#btnExport').onclick=()=>{ if(!S.proj){ toast('No hay proyecto'); return; } exportProject(S.proj); };
 
 /* ---------- encuadre, búsqueda y navegación ---------- */
 $('#btnFit').onclick=()=>{ fitView(); draw(); };
@@ -374,28 +408,46 @@ $('#btnCopy').onclick=()=>{ if(!S.last){ toast('Aún no guardaste ningún taladr
   renderForm(); toast('Copiado del taladro '+S.last.id); };
 
 /* ---------- PC <-> celular: enlace del proyecto e importación de logueos ---------- */
-const b64u={ enc:u=>btoa(String.fromCharCode(...u)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
+const b64u={ enc:u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode(...u.subarray(i,i+8192));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');},
              dec:t=>Uint8Array.from(atob(t.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)) };
 async function pipe(bytes,Stream,fmt){ return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new Stream(fmt))).arrayBuffer()); }
-async function projectLink(){
-  const txt=S.proj+'\n'+S.holes.map(h=>[h.id,h.E,h.N,isFinite(h.Z)?h.Z:''].join(',')).join('\n');
-  return location.origin+location.pathname+'#p='+b64u.enc(await pipe(new TextEncoder().encode(txt),CompressionStream,'gzip'));
+
+/* formato compacto: coordenadas en cm como diferencias base-36, comprimido con deflate */
+const isNumId=s=>/^\d+$/.test(s)&&String(+s)===s;
+function packHoles(name,holes){
+  let pI=0,pE=0,pN=0,pZ=0; const out=[name];
+  for(const h of holes){
+    const e=Math.round(h.E*100), n=Math.round(h.N*100), z=isFinite(h.Z)?Math.round(h.Z*10):null;
+    let id; if(isNumId(h.id)){ id=(+h.id-pI).toString(36); pI=+h.id; } else id='='+h.id;
+    out.push([id,(e-pE).toString(36),(n-pN).toString(36),z==null?'n':(z-pZ).toString(36)].join(','));
+    pE=e; pN=n; if(z!=null) pZ=z; }
+  return out.join('\n');
+}
+function unpackHoles(txt){
+  const [name,...rows]=txt.split('\n'); let pI=0,pE=0,pN=0,pZ=0;
+  const holes=rows.filter(Boolean).map(r=>{ const [a,b,c,d]=r.split(',');
+    let id; if(a[0]==='=') id=a.slice(1); else { pI+=parseInt(a,36); id=String(pI); }
+    pE+=parseInt(b,36); pN+=parseInt(c,36); let Z=NaN; if(d!=='n'){ pZ+=parseInt(d,36); Z=pZ/10; }
+    return {id,E:pE/100,N:pN/100,Z,proj:name}; });
+  return {name,holes};
+}
+async function projectLink(name){
+  const p=await idb.get('projects',name);
+  const z=await pipe(new TextEncoder().encode(packHoles(p.name,p.holes)),CompressionStream,'deflate-raw');
+  return location.origin+location.pathname+'#q='+b64u.enc(z);
 }
 async function importLink(str){
-  const m=String(str).match(/#p=([\w-]+)/); if(!m) throw new Error('El enlace no es válido');
-  const txt=new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'gzip'));
-  const [name,...rows]=txt.split('\n');
-  const holes=rows.filter(Boolean).map(r=>{const [id,E,N,Z]=r.split(',');return{id,E:+E,N:+N,Z:Z===''?NaN:+Z,proj:name};});
-  await idb.put('projects',{name,holes,added:Date.now()}); await refreshProjects(name);
-  toast(`Proyecto ${name}: ${holes.length} taladros`);
+  let m=String(str).match(/#q=([\w-]+)/), data;
+  if(m) data=unpackHoles(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw')));
+  else { m=String(str).match(/#p=([\w-]+)/); if(!m) throw new Error('El enlace no es válido');   // formato anterior
+    const [name,...rows]=new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'gzip')).split('\n');
+    data={name,holes:rows.filter(Boolean).map(r=>{const [id,E,N,Z]=r.split(',');return{id,E:+E,N:+N,Z:Z===''?NaN:+Z,proj:name};})}; }
+  await idb.put('projects',{name:data.name,holes:data.holes,added:Date.now()}); await refreshProjects(data.name);
+  toast(`Proyecto ${data.name}: ${data.holes.length} taladros`);
 }
-$('#cfgLink').onclick=async()=>{ if(!S.proj){toast('No hay proyecto');return;}
-  const l=await projectLink();
-  try{ await navigator.clipboard.writeText(l); toast('Enlace copiado. Envíalo al celular (WhatsApp/Teams/correo) y ábrelo allí',4500); }
-  catch{ prompt('Copia este enlace:',l); } };
-$('#cfgPaste').onclick=async()=>{ let t=''; try{ t=await navigator.clipboard.readText(); }catch{}
-  if(!/#p=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
-  if(!t) return; try{ await importLink(t); $('#cfg').close(); }catch(e){ toast(e.message,3500); } };
+async function pasteLink(){ let t=''; try{ t=await navigator.clipboard.readText(); }catch{}
+  if(!/#[qp]=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
+  if(!t) return; try{ await importLink(t); $('#projDlg').close(); }catch(e){ toast(e.message,3500); } }
 $('#cfgImp').onclick=()=>$('#fileImp').click();
 
 function parseRows(txt){ const out=[]; let row=[],f='',q=false;
@@ -438,12 +490,87 @@ $('#fileImp').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; 
 async function keepAwake(){ try{ S.wake=await navigator.wakeLock?.request('screen'); }catch{} }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&S.watch!=null) keepAwake(); });
 
+
+/* ---------- panel de proyectos (varios proyectos en campo) ---------- */
+function fmtDist(m){ return m<1000?Math.round(m)+' m':(m/1000).toFixed(m<10000?1:0)+' km'; }
+async function renderProjects(){
+  const ps=await idb.all('projects'), logs=await idb.all('logs'), done={};
+  logs.forEach(l=>{ if(l.estado) done[l.proj]=(done[l.proj]||0)+1; });
+  const g=gpsEN();
+  const rows=ps.map(p=>{ const n=p.holes.length; let d=null;
+    if(g&&n){ const cE=p.holes.reduce((a,h)=>a+h.E,0)/n, cN=p.holes.reduce((a,h)=>a+h.N,0)/n; d=Math.hypot(g.E-cE,g.N-cN); }
+    return {p,n,dn:done[p.name]||0,d}; });
+  rows.sort((a,b)=>(a.d!=null&&b.d!=null)?a.d-b.d:a.p.name.localeCompare(b.p.name));
+  const box=$('#projList');
+  if(!rows.length){ box.innerHTML='<div class="pnone">Aún no hay proyectos.<br>Carga un CSV o pega un enlace.</div>'; return; }
+  box.innerHTML=rows.map(r=>{ const pct=r.n?Math.round(r.dn*100/r.n):0;
+    return `<div class="prow${r.p.name===S.proj?' cur':''}" data-n="${esc(r.p.name)}">
+      <div class="pmain" data-a="open"><b>${esc(r.p.name)}</b>
+        <small>${r.dn} / ${r.n} taladros · ${pct}%${r.d!=null?' · a '+fmtDist(r.d):''}</small>
+        <div class="pbar"><i style="width:${pct}%"></i></div></div>
+      <div class="pact">
+        <button class="ib" data-a="qr" title="QR / enlace para el celular"><i class="ic" data-ic="qr"></i></button>
+        <button class="ib" data-a="exp" title="Exportar logueos"><i class="ic" data-ic="upload"></i></button>
+        <button class="ib" data-a="del" title="Borrar proyecto"><i class="ic" data-ic="trash"></i></button>
+      </div></div>`; }).join('');
+  hydrate(box);
+}
+async function openProjectsPanel(){
+  $('#projDlg').showModal(); renderProjects();
+  try{ const st=await navigator.permissions?.query({name:'geolocation'});     // si ya hay permiso, ordenar por cercanía
+    if(st?.state==='granted') navigator.geolocation.getCurrentPosition(p=>{
+      S.gps={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy}; if($('#projDlg').open) renderProjects(); },()=>{},{timeout:8000}); }catch{}
+}
+async function wipeProject(name){
+  if(!confirm(`¿Borrar el proyecto ${name} con TODOS sus logueos y fotos de este equipo? Exporta antes.`)) return false;
+  for(const l of await idb.all('logs','proj',name)) await idb.del('logs',l.key);
+  for(const p of await idb.all('photos')) if(p.key.startsWith(name+'|')) await idb.del('photos',p.id);
+  await idb.del('projects',name); return true;
+}
+$('#projBtn').onclick=openProjectsPanel;
+$('#pCsv').onclick=()=>$('#fileCsv').click();
+$('#pPaste').onclick=pasteLink;
+$('#emptyCsv').onclick=()=>$('#fileCsv').click();
+$('#emptyLink').onclick=pasteLink;
+$('#projList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-a]'); if(!b) return; const name=b.closest('.prow').dataset.n;
+  if(b.dataset.a==='open'){ await openProject(name); $('#projDlg').close(); }
+  else if(b.dataset.a==='exp') exportProject(name);
+  else if(b.dataset.a==='qr') showQR(name);
+  else if(b.dataset.a==='del'){ if(await wipeProject(name)){ await refreshProjects(name===S.proj?undefined:S.proj); renderProjects(); } }
+});
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
+
+/* ---------- QR del proyecto ---------- */
+let qrLink='';
+async function showQR(name){
+  qrLink=await projectLink(name); $('#qrTitle').textContent=name;
+  const cvq=$('#qrCv'), note=$('#qrNote');
+  note.textContent=`Escanéalo con la cámara del celular. Enlace de ${qrLink.length} caracteres.`;
+  try{ const qr=qrcode(0,'L'); qr.addData(qrLink); qr.make();
+    const n=qr.getModuleCount(), sc=Math.max(2,Math.floor(300/(n+8))), size=(n+8)*sc; cvq.width=cvq.height=size;
+    const c=cvq.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,size,size); c.fillStyle='#000';
+    for(let r=0;r<n;r++)for(let q=0;q<n;q++) if(qr.isDark(r,q)) c.fillRect((q+4)*sc,(r+4)*sc,sc,sc);
+    cvq.style.display='block'; cvq.style.width=Math.min(size,300)+'px';
+  }catch{ cvq.style.display='none'; note.textContent='El proyecto es muy grande para un QR. Copia el enlace y envíalo por WhatsApp o Teams.'; }
+  $('#qrDlg').showModal();
+}
+$('#qrCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(qrLink); toast('Enlace copiado'); }catch{ prompt('Copia este enlace:',qrLink); } };
+
+/* ---------- acerca de ---------- */
+function setupAbout(){
+  for(const [id,txt] of [['#byLink',AUTOR.nombre],['#aboutBy',AUTOR.nombre]]){ const a=$(id); a.textContent=txt; a.href=AUTOR.url; }
+  const r=$('#aboutRepo'); r.href=AUTOR.repo; $('#ver').textContent=VERSION;
+}
+$('#cfgAbout').onclick=()=>{ $('#cfg').close(); $('#aboutDlg').showModal(); };
+$('#cfgWipe').onclick=async()=>{ if(!S.proj) return; if(await wipeProject(S.proj)){ $('#cfg').close(); await refreshProjects(); } };
+
 /* ---------- arranque ---------- */
 addEventListener('resize',resize);
 matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
 (async()=>{
-  loadCfg(); await idb.open(); resize(); await refreshProjects();
-  if(/#p=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
+  loadCfg(); hydrate(); setupAbout(); await idb.open(); resize(); await refreshProjects();
+  if(/#[qp]=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
   if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
-<meta name="theme-color" content="#14213d">
+<meta name="theme-color" content="#0b1b3a">
+<meta name="description" content="Logueo geológico de taladros de voladura en campo, con mapa, GPS y modo offline.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -12,73 +13,133 @@
 </head>
 <body>
 <header>
-  <select id="projSel" aria-label="Proyecto"></select>
-  <button id="btnCsv" title="Cargar CSV de taladros">CSV</button>
-  <button id="btnExport" title="Exportar logueos">Exportar</button>
-  <button id="btnCfg" title="Ajustes">⚙</button>
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#14325f"/>
+      <g fill="#60a5fa"><circle cx="9" cy="9" r="2.6"/><circle cx="16" cy="9" r="2.6"/><circle cx="23" cy="9" r="2.6"/><circle cx="9" cy="16" r="2.6"/><circle cx="23" cy="16" r="2.6"/><circle cx="9" cy="23" r="2.6"/><circle cx="16" cy="23" r="2.6"/><circle cx="23" cy="23" r="2.6"/></g>
+      <circle cx="16" cy="16" r="3.4" fill="#facc15"/></svg>
+    <div class="brand-t"><b>Logueo BH</b><small>Taladros de voladura</small></div>
+  </div>
+  <button id="projBtn" class="chip-btn" title="Proyectos">
+    <i class="ic" data-ic="layers"></i><span id="projName">Sin proyecto</span><small id="projPct"></small>
+  </button>
+  <button id="btnCsv" class="ib" title="Cargar CSV de taladros"><i class="ic" data-ic="file"></i></button>
+  <button id="btnExport" class="ib" title="Exportar logueos"><i class="ic" data-ic="upload"></i></button>
+  <button id="btnCfg" class="ib" title="Ajustes"><i class="ic" data-ic="sliders"></i></button>
   <input id="fileCsv" type="file" accept=".csv,.txt,text/csv" hidden>
 </header>
+<div id="bar"><i></i></div>
 
 <main>
   <canvas id="map"></canvas>
-  <div id="empty">Carga el CSV de taladros<br><small>id, Norte, Este, Cota, proyecto</small></div>
-  <div id="progress"></div>
+
+  <div id="empty">
+    <div class="card">
+      <svg class="logo big" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#14325f"/>
+        <g fill="#60a5fa"><circle cx="9" cy="9" r="2.6"/><circle cx="16" cy="9" r="2.6"/><circle cx="23" cy="9" r="2.6"/><circle cx="9" cy="16" r="2.6"/><circle cx="23" cy="16" r="2.6"/><circle cx="9" cy="23" r="2.6"/><circle cx="16" cy="23" r="2.6"/><circle cx="23" cy="23" r="2.6"/></g>
+        <circle cx="16" cy="16" r="3.4" fill="#facc15"/></svg>
+      <h1>Logueo de taladros</h1>
+      <p>Carga la malla, ubícate con el GPS y registra cada taladro en campo, incluso sin señal.</p>
+      <ol>
+        <li><i class="ic" data-ic="file"></i>Carga el CSV <small>id, Norte, Este, Cota, proyecto</small></li>
+        <li><i class="ic" data-ic="locate"></i>Ubícate con el GPS</li>
+        <li><i class="ic" data-ic="camera"></i>Registra datos y fotos</li>
+      </ol>
+      <button id="emptyCsv" class="primary wide"><i class="ic" data-ic="file"></i>Cargar CSV de taladros</button>
+      <button id="emptyLink" class="ghost wide"><i class="ic" data-ic="clipboard"></i>Pegar enlace de proyecto</button>
+      <small class="by">Desarrollado por <a id="byLink" target="_blank" rel="noopener"></a></small>
+    </div>
+  </div>
+
+  <input id="search" type="search" placeholder="Buscar taladro" autocomplete="off" enterkeyhint="go">
+  <div id="gpsInfo"></div>
   <div id="legend">
     <span><i class="d pend"></i>Pendiente</span>
     <span><i class="d ok"></i>Logueado</span>
-    <span><i class="d obs"></i>Sin acceso/otro</span>
+    <span><i class="d obs"></i>Sin acceso / otro</span>
   </div>
-  <input id="search" type="search" placeholder="🔍 N° taladro" autocomplete="off" enterkeyhint="go">
-  <div id="gpsInfo"></div>
   <div id="ctrl">
-    <button id="btnZin" title="Acercar">＋</button>
-    <button id="btnZout" title="Alejar">－</button>
-    <button id="btnFit" title="Ver toda la malla">⤢</button>
-    <button id="btnNext" title="Ir al siguiente pendiente más cercano">⏭</button>
-    <button id="btnGps" class="fab" title="Mi posición">◎</button>
+    <button id="btnZin" title="Acercar"><i class="ic" data-ic="plus"></i></button>
+    <button id="btnZout" title="Alejar"><i class="ic" data-ic="minus"></i></button>
+    <button id="btnFit" title="Ver toda la malla"><i class="ic" data-ic="fit"></i></button>
+    <button id="btnNext" title="Siguiente pendiente más cercano"><i class="ic" data-ic="next"></i></button>
+    <button id="btnGps" class="fab" title="Mi posición"><i class="ic" data-ic="locate"></i></button>
   </div>
 </main>
 
 <section id="sheet" hidden>
+  <div class="grab"></div>
   <div class="sheet-head">
     <div><b id="holeTitle"></b><small id="holeSub"></small></div>
-    <div class="nav"><button id="btnPrev" class="ghost">◀</button><button id="btnNextH" class="ghost">▶</button><button id="btnClose" class="ghost">✕</button></div>
+    <div class="nav">
+      <button id="btnPrev" class="ib" title="Taladro anterior"><i class="ic" data-ic="left"></i></button>
+      <button id="btnNextH" class="ib" title="Taladro siguiente"><i class="ic" data-ic="right"></i></button>
+      <button id="btnClose" class="ib" title="Cerrar"><i class="ic" data-ic="x"></i></button>
+    </div>
   </div>
   <form id="form" autocomplete="off"></form>
   <div class="photos">
     <div id="thumbs"></div>
-    <button type="button" id="btnPhoto">📷 Foto</button>
+    <button type="button" id="btnPhoto"><i class="ic" data-ic="camera"></i>Foto</button>
     <input id="filePhoto" type="file" accept="image/*" capture="environment" multiple hidden>
   </div>
   <div class="sheet-foot">
-    <button id="btnCopy" class="ghost" type="button" title="Copiar los datos geológicos del último taladro guardado">↺ Anterior</button>
-    <button id="btnCal" class="ghost" type="button" title="Estoy parado sobre este taladro: corregir desplazamiento del GPS">📍 Calibrar aquí</button>
-    <button id="btnSave" class="primary" type="button">Guardar</button>
+    <button id="btnCopy" class="ib2" type="button" title="Copiar los datos geológicos del último taladro guardado"><i class="ic" data-ic="history"></i>Anterior</button>
+    <button id="btnCal" class="ib2" type="button" title="Estoy sobre este taladro: corrige el desfase del GPS"><i class="ic" data-ic="pin"></i>Calibrar</button>
+    <button id="btnSave" class="primary" type="button"><i class="ic" data-ic="check"></i>Guardar</button>
   </div>
 </section>
 
-<dialog id="cfg">
-  <h3>Ajustes</h3>
-  <label>Usuario <input id="cfgUser" type="text" placeholder="Nombre / iniciales"></label>
-  <label>Zona UTM <input id="cfgZone" type="number" min="1" max="60"></label>
-  <label>Hemisferio
-    <select id="cfgHemi"><option value="S">Sur</option><option value="N">Norte</option></select>
-  </label>
-  <p id="cfgOff"></p>
+<dialog id="projDlg">
+  <div class="dlg-head"><h3>Proyectos</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
+  <div id="projList"></div>
   <div class="row">
-    <button id="cfgLink" class="ghost" type="button">🔗 Copiar enlace del proyecto</button>
-    <button id="cfgPaste" class="ghost" type="button">📋 Pegar enlace</button>
-    <button id="cfgImp" class="ghost" type="button">📥 Importar logueos (.zip/.csv)</button>
+    <button id="pCsv" class="primary"><i class="ic" data-ic="file"></i>Cargar CSV</button>
+    <button id="pPaste" class="ghost"><i class="ic" data-ic="clipboard"></i>Pegar enlace</button>
+  </div>
+</dialog>
+
+<dialog id="qrDlg">
+  <div class="dlg-head"><h3 id="qrTitle">Enviar al celular</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
+  <canvas id="qrCv"></canvas>
+  <p class="muted" id="qrNote"></p>
+  <div class="row">
+    <button id="qrCopy" class="primary"><i class="ic" data-ic="link"></i>Copiar enlace</button>
+  </div>
+</dialog>
+
+<dialog id="cfg">
+  <div class="dlg-head"><h3>Ajustes</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
+  <label>Usuario <input id="cfgUser" type="text" placeholder="Nombre / iniciales"></label>
+  <div class="two">
+    <label>Zona UTM <input id="cfgZone" type="number" min="1" max="60"></label>
+    <label>Hemisferio
+      <select id="cfgHemi"><option value="S">Sur</option><option value="N">Norte</option></select>
+    </label>
+  </div>
+  <p id="cfgOff" class="muted"></p>
+  <div class="row">
+    <button id="cfgResetOff" class="ghost"><i class="ic" data-ic="pin"></i>Quitar calibración</button>
+    <button id="cfgImp" class="ghost"><i class="ic" data-ic="download"></i>Importar logueos</button>
     <input id="fileImp" type="file" accept=".zip,.csv,text/csv,application/zip" hidden>
   </div>
   <div class="row">
-    <button id="cfgResetOff" class="ghost" type="button">Quitar calibración</button>
-    <button id="cfgWipe" class="danger" type="button">Borrar datos del proyecto</button>
+    <button id="cfgAbout" class="ghost"><i class="ic" data-ic="info"></i>Acerca de</button>
+    <button id="cfgWipe" class="danger"><i class="ic" data-ic="trash"></i>Borrar proyecto</button>
   </div>
-  <div class="row"><button id="cfgOk" class="primary" type="button">Cerrar</button></div>
+  <div class="row"><button id="cfgOk" class="primary">Listo</button></div>
+</dialog>
+
+<dialog id="aboutDlg">
+  <div class="dlg-head"><h3>Logueo Blastholes</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
+  <p>Aplicación web instalable para el logueo geológico de taladros de voladura en campo: mapa de la malla, ubicación por GPS, formulario con listas, fotos y exportación. Funciona sin señal y guarda los datos en el propio equipo.</p>
+  <p class="muted">Versión <span id="ver"></span></p>
+  <p>Desarrollado por <a id="aboutBy" target="_blank" rel="noopener"></a><br>
+     <a id="aboutRepo" target="_blank" rel="noopener">Código fuente en GitHub</a></p>
+  <div class="row"><button class="primary" data-close>Cerrar</button></div>
 </dialog>
 
 <div id="toast"></div>
+<script src="qrcode.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
