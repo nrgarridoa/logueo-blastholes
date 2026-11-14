@@ -120,7 +120,7 @@
       <select id="cfgHemi"><option value="S">Sur</option><option value="N">Norte</option></select>
     </label>
   </div>
-  <label>Clave de campo <input id="cfgClave" type="password" autocomplete="off"></label>
+  <label>Clave para compartir entre equipos <input id="cfgClave" type="password" autocomplete="off"></label>
   <p id="cfgOff" class="muted"></p>
   <div class="row">
     <button id="cfgResetOff" class="ghost"><i class="ic" data-ic="pin"></i>Quitar calibración</button>
@@ -137,10 +137,9 @@
 
 <dialog id="claveDlg">
   <form method="dialog">
-    <div class="dlg-head"><h3>Clave de campo</h3></div>
+    <div class="dlg-head"><h3>Clave del enlace</h3></div>
     <p id="claveErr" class="muted" style="color:#B42318"></p>
-    <label>Clave para abrir los enlaces de la plataforma <input id="claveIn" type="password" autocomplete="off" required></label>
-    <label style="display:flex;gap:8px;align-items:center"><input id="claveRec" type="checkbox" checked style="width:auto"> Recordar en este equipo</label>
+    <label>La clave que acompaña a este enlace (p. ej. K7M4-QX9P) <input id="claveIn" autocomplete="off" autocapitalize="characters" spellcheck="false" required style="text-transform:uppercase;letter-spacing:.12em;font-family:monospace;font-size:20px"></label>
     <div class="row">
       <button value="no" class="ghost" formnovalidate>Cancelar</button>
       <button value="ok" class="primary">Abrir</button>
