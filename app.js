@@ -31,7 +31,7 @@ const $ = s => document.querySelector(s);
 
 /* ---------- iconos (SVG propios, trazo 2px) ---------- */
 const AUTOR={nombre:'nrgarridoa',url:'https://github.com/nrgarridoa',repo:'https://github.com/nrgarridoa/logueo-blastholes'};
-const VERSION='1.6';
+const VERSION='1.6.1';
 const IC={
   layers:'<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
   file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>',
@@ -435,7 +435,9 @@ async function cifrar(bytes,clave){
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:TE.encode('b')},cifSesion.k,bytes));
   const out=new Uint8Array(29+ct.length); out[0]=1; out.set(cifSesion.sal,1); out.set(iv,17); out.set(ct,29); return out; }
-function pedirClave(error){ const d=$('#claveDlg'); $('#claveErr').textContent=error||''; $('#claveIn').value=''; d.showModal();
+function pedirClave(error){ const d=$('#claveDlg'); $('#claveErr').textContent=error||''; $('#claveIn').value=''; d.returnValue='';
+  $('#claveIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); if($('#claveIn').value.trim()) d.close('ok'); } };   // Enter: Abrir, no Cancelar
+  d.showModal();
   return new Promise(res=>{ d.onclose=()=>res(d.returnValue==='ok'?$('#claveIn').value:null); }); }
 async function abrirCifrado(bytes){
   let clave=getClave(), error='';          // primero la de Ajustes (enlaces entre equipos); si no abre, se pide la del enlace
