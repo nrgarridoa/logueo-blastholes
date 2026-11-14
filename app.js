@@ -31,7 +31,7 @@ const $ = s => document.querySelector(s);
 
 /* ---------- iconos (SVG propios, trazo 2px) ---------- */
 const AUTOR={nombre:'nrgarridoa',url:'https://github.com/nrgarridoa',repo:'https://github.com/nrgarridoa/logueo-blastholes'};
-const VERSION='1.6.1';
+const VERSION='1.7.0';
 const IC={
   layers:'<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
   file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>',
@@ -54,13 +54,14 @@ const IC={
   clipboard:'<rect x="6" y="5" width="12" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/>',
   trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
+  scan:'<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 12h8"/>',
   qr:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M14 21h3M21 17v4"/>',
 };
 function hydrate(root=document){ root.querySelectorAll('[data-ic]').forEach(el=>{
   if(el.firstChild) return; el.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+(IC[el.dataset.ic]||'')+'</svg>'; }); }
 const cv = $('#map'), ctx = cv.getContext('2d');
 const S = { proj:null, holes:[], logs:new Map(), sel:null, draft:{}, view:{cx:0,cy:0,k:1},
-            gps:null, watch:null, near:null, last:null, bounds:null, fitK:1, order:[], wake:null, cfg:{user:'',zone:19,hemi:'S',dE:0,dN:0}, cssv:{} };
+            gps:null, watch:null, near:null, last:null, prev:new Set(), bounds:null, fitK:1, order:[], wake:null, cfg:{user:'',zone:19,hemi:'S',dE:0,dN:0}, cssv:{} };
 
 /* ---------- IndexedDB mínimo ---------- */
 let db;
@@ -122,7 +123,7 @@ function parseCSV(txt){
 
 /* ---------- proyectos ---------- */
 async function refreshProjects(sel){
-  const ps = await idb.all('projects');
+  const ps = (await idb.all('projects')).filter(p=>!p.entregado);
   if(!ps.length){ S.proj=null; S.holes=[]; S.logs=new Map(); S.order=[]; S.bounds=null; $('#sheet').hidden=true; draw(); updateProgress(); return; }
   ps.sort((a,b)=>a.name.localeCompare(b.name));
   let want = sel && ps.find(p=>p.name===sel) ? sel : null;
@@ -131,13 +132,13 @@ async function refreshProjects(sel){
 }
 async function openProject(name){
   const p=await idb.get('projects',name); if(!p) return;
-  S.proj=name; S.holes=p.holes; S.order=[...p.holes].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})); S.sel=null; $('#sheet').hidden=true;
+  S.proj=name; S.holes=p.holes; S.prev=new Set(p.previo||[]); S.order=[...p.holes].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})); S.sel=null; $('#sheet').hidden=true;
   try{localStorage.setItem('proj',name)}catch{}
   S.logs=new Map((await idb.all('logs','proj',name)).map(l=>[l.key,l]));
   fitView(); draw(); updateProgress();
 }
 function updateProgress(){
-  const n=S.holes.length, done=[...S.logs.values()].filter(l=>l.estado).length, pct=n?Math.round(done*100/n):0;
+  const n=S.holes.length, done=S.holes.filter(h=>(S.logs.get(S.proj+'|'+h.id)||{}).estado||S.prev.has(h.id)).length, pct=n?Math.round(done*100/n):0;
   $('#projName').textContent=S.proj||'Sin proyecto';
   $('#projPct').textContent=n?`${done}/${n}`:'';
   $('#bar i').style.width=pct+'%';
@@ -168,7 +169,7 @@ function resize(){ const d=devicePixelRatio||1;
 function cssv(){ const s=getComputedStyle(document.documentElement);
   ['pend','ok','obs','sel','lbl','mapbg','grid','halo','dotline'].forEach(k=>S.cssv[k]=s.getPropertyValue('--'+k).trim()); }
 function colorFor(h){ const l=S.logs.get(S.proj+'|'+h.id);
-  if(!l||!l.estado) return S.cssv.pend; return l.estado==='Logueado'?S.cssv.ok:S.cssv.obs; }
+  if(!l||!l.estado) return S.prev.has(h.id)?S.cssv.ok:S.cssv.pend; return l.estado==='Logueado'?S.cssv.ok:S.cssv.obs; }
 
 let raf=0; function draw(){ if(raf) return; raf=requestAnimationFrame(()=>{raf=0; clampView(); render();}); }
 function render(){
@@ -381,10 +382,42 @@ async function exportProject(name){
   const keyId=new Map(logs.map(l=>[l.key,l.id])); let n=0;
   for(const p of await idb.all('photos')){ const id=keyId.get(p.key); if(!id) continue;
     files.push({name:`fotos/${id}_${++n}.jpg`,data:new Uint8Array(await p.blob.arrayBuffer())}); }
-  const d=new Date().toISOString().slice(0,10), fn=`${name}_logueo_${(S.cfg.user||'user').replace(/\W+/g,'')}_${d}.zip`;
-  const blob=zip(files), file=new File([blob],fn,{type:'application/zip'});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file],title:fn}); return; }catch(e){ if(e.name==='AbortError') return; } }
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fn; a.click(); toast('Descargado '+fn,3500);
+  const d=new Date().toISOString().slice(0,16).replace(/[T:]/g,'-'), base=`${name}_logueo_${(S.cfg.user||'user').replace(/\W+/g,'')}_${d}`;
+  const blob=zip(files), p=await idb.get('projects',name), cif=!!p?.pk;
+  const file=cif ? new File([await cifrarBin(new Uint8Array(await blob.arrayBuffer()),p.pk)],base+'.logueo',{type:'application/octet-stream'})
+                 : new File([blob],base+'.zip',{type:'application/zip'});
+  let ok=false;
+  if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file],title:file.name}); ok=true; }catch(e){ if(e.name==='AbortError') return; } }
+  if(!ok){ const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download=file.name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+  if(await confirmarEntrega(file.name,cif)) await entregar(name);
+  else toast('Archivo generado. La malla sigue en el equipo hasta que confirmes la entrega.',4000);
+}
+function confirmarEntrega(fn,cif){ const d=$('#entregaDlg'); $('#entregaArch').textContent=fn+(cif?' · va cifrado: solo la plataforma lo puede abrir':'');
+  d.returnValue=''; d.showModal(); return new Promise(res=>{ d.onclose=()=>res(d.returnValue==='ok'); }); }
+async function borrarDatos(name){
+  for(const l of await idb.all('logs','proj',name)) await idb.del('logs',l.key);
+  for(const ph of await idb.all('photos')) if(ph.key.startsWith(name+'|')) await idb.del('photos',ph.id);
+}
+/* entregado: queda solo una constancia (sin taladros, logueos ni fotos) */
+async function entregar(name){
+  const p=await idb.get('projects',name), logs=await idb.all('logs','proj',name);
+  await borrarDatos(name);
+  await idb.put('projects',{name,holes:[],entregado:Date.now(),n:p?.holes?.length||0,done:(p?.holes||[]).filter(h=>logs.some(l=>l.id===h.id&&l.estado)||(p.previo||[]).includes(h.id)).length,added:p?.added||Date.now()});
+  await refreshProjects(name===S.proj?undefined:S.proj); if($('#projDlg').open) renderProjects();
+  toast(`${name} entregado y borrado del equipo`,4000);
+}
+/* mallas de la plataforma sin actividad: se borran 3 dias despues de vencido el enlace o de la ultima lectura */
+const H=3600e3, fechaCorta=t=>new Date(t).toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+const limiteBorrado=(p,ult)=>Math.max(p.vence||0,ult||0,p.added||0)+3*24*H;
+async function limpiezaAuto(){
+  const borr=[];
+  for(const p of await idb.all('projects')){
+    if(p.entregado){ if(Date.now()-p.entregado>30*24*H) await idb.del('projects',p.name); continue; }
+    if(!p.vence) continue;                                   // los CSV cargados a mano no vencen
+    const logs=await idb.all('logs','proj',p.name), ult=logs.reduce((a,l)=>Math.max(a,Date.parse(l.ts)||0),0);
+    if(Date.now()>limiteBorrado(p,ult)){ await borrarDatos(p.name); await idb.del('projects',p.name); borr.push(p.name); }
+  }
+  if(borr.length) setTimeout(()=>toast('Borrados por inactividad: '+borr.join(', '),6000),800);
 }
 $('#btnExport').onclick=()=>{ if(!S.proj){ toast('No hay proyecto'); return; } exportProject(S.proj); };
 
@@ -403,7 +436,7 @@ function step(d){ const i=S.order.findIndex(x=>x.id===S.sel); if(i<0) return;
 $('#btnPrev').onclick=()=>step(-1); $('#btnNextH').onclick=()=>step(1);
 $('#btnNext').onclick=()=>{
   const g=gpsEN()||{E:S.view.cx,N:S.view.cy};
-  const pend=S.holes.filter(h=>!(S.logs.get(S.proj+'|'+h.id)||{}).estado);
+  const pend=S.holes.filter(h=>!(S.logs.get(S.proj+'|'+h.id)||{}).estado&&!S.prev.has(h.id));
   if(!pend.length){ toast('No quedan taladros pendientes'); return; }
   let b=pend[0],bd=1e18; for(const h of pend){ const d=Math.hypot(h.E-g.E,h.N-g.N); if(d<bd){bd=d;b=h;} }
   S.sel=b.id; goHole(b,false); toast(`Pendiente más cercano: ${b.id} (${bd.toFixed(0)} m)`); };
@@ -436,6 +469,7 @@ async function cifrar(bytes,clave){
   const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:TE.encode('b')},cifSesion.k,bytes));
   const out=new Uint8Array(29+ct.length); out[0]=1; out.set(cifSesion.sal,1); out.set(iv,17); out.set(ct,29); return out; }
 function pedirClave(error){ const d=$('#claveDlg'); $('#claveErr').textContent=error||''; $('#claveIn').value=''; d.returnValue='';
+  $('#claveIn').oninput=()=>{ const i=$('#claveIn'), v=i.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8); i.value=v.length>4?v.slice(0,4)+'-'+v.slice(4):v; };
   $('#claveIn').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); if($('#claveIn').value.trim()) d.close('ok'); } };   // Enter: Abrir, no Cancelar
   d.showModal();
   return new Promise(res=>{ d.onclose=()=>res(d.returnValue==='ok'?$('#claveIn').value:null); }); }
@@ -446,6 +480,19 @@ async function abrirCifrado(bytes){
     try{ return await descifrar(bytes,clave); }
     catch(e){ if(/versión/.test(e.message)) throw e; error=clave===getClave()?'':'Clave incorrecta'; clave=''; }
   } }
+
+async function cifrarBin(datos,pk){
+  const info=TE.encode('logueo-zip');
+  const pub=await crypto.subtle.importKey('raw',b64u.dec(pk),{name:'ECDH',namedCurve:'P-256'},false,[]);
+  const e=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+  const epk=new Uint8Array(await crypto.subtle.exportKey('raw',e.publicKey));
+  const bits=await crypto.subtle.deriveBits({name:'ECDH',public:pub},e.privateKey,256);
+  const hk=await crypto.subtle.importKey('raw',bits,'HKDF',false,['deriveKey']);
+  const k=await crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:epk,info},hk,{name:'AES-GCM',length:256},false,['encrypt']);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:info},k,datos));
+  const out=new Uint8Array(81+ct.length); out.set(TE.encode('LGB1'),0); out.set(epk,4); out.set(iv,69); out.set(ct,81); return out;
+}
 
 /* formato compacto: coordenadas en cm como diferencias base-36, comprimido con deflate */
 const isNumId=s=>/^\d+$/.test(s)&&String(+s)===s;
@@ -472,7 +519,9 @@ const PK='\u0001';
 async function rawLink(names,part,total){
   const blocks=[];
   for(const n of names){ const p=await idb.get('projects',n); blocks.push(PK+packHoles(p.name,p.holes)); }
-  const z=await pipe(new TextEncoder().encode(`${part}/${total}\n`+blocks.join('\n')),CompressionStream,'deflate-raw');
+  let pk=''; for(const n of names){ const p=await idb.get('projects',n); if(p?.pk){ pk=p.pk; break; } }
+  const venc=Math.floor((Date.now()+48*H)/60000);        // tambien vence el enlace que genera este equipo
+  const z=await pipe(new TextEncoder().encode(`${part}/${total}/${venc}/${pk}/\n`+blocks.join('\n')),CompressionStream,'deflate-raw');
   const clave=getClave();                // con clave de campo guardada el enlace sale cifrado
   return clave ? location.origin+location.pathname+'#bc='+b64u.enc(await cifrar(z,clave))
                : location.origin+location.pathname+'#b='+b64u.enc(z);
@@ -484,29 +533,33 @@ async function bundleLinks(names){
   return Promise.all(groups.map(async(g,i)=>({names:g,link:await rawLink(g,i+1,groups.length)})));
 }
 function unpackBundle(txt){
-  const lines=txt.split('\n'); const [part,total]=lines.shift().split('/').map(Number);
+  const lines=txt.split('\n'), head=lines.shift().split('/'), [part,total]=head.map(Number);
+  const vence=head[2]?Number(head[2])*60000:null, pk=head[3]||'', av=(head[4]||'').split('.');
   const projects=[]; let cur=null,pI=0,pE=0,pN=0,pZ=0;
   for(const l of lines){ if(!l) continue;
     if(l[0]===PK){ cur={name:l.slice(1),holes:[]}; projects.push(cur); pI=pE=pN=pZ=0; continue; }
     const [a,b,c,d]=l.split(','); let id; if(a[0]==='=') id=a.slice(1); else { pI+=parseInt(a,36); id=String(pI); }
     pE+=parseInt(b,36); pN+=parseInt(c,36); let Z=NaN; if(d!=='n'){ pZ+=parseInt(d,36); Z=pZ/10; }
     cur.holes.push({id,E:pE/100,N:pN/100,Z,proj:cur.name}); }
-  return {part,total,projects};
+  projects.forEach((p,k)=>{ const b=av[k]?b64u.dec(av[k]):new Uint8Array(); p.previo=p.holes.filter((h,i)=>(b[i>>3]>>(i&7))&1).map(h=>h.id); });
+  return {part,total,projects,vence,pk};
 }
 const got={total:0,parts:new Set(),t:0};
 async function importLink(str){
-  str=String(str); let m, projects, part=1,total=1;
+  str=String(str); let m, projects, part=1,total=1, vence=null, pk='';
   if(m=str.match(/#bc=([\w-]+)/)){
-    ({part,total,projects}=unpackBundle(new TextDecoder().decode(await pipe(await abrirCifrado(b64u.dec(m[1])),DecompressionStream,'deflate-raw')))); }
+    ({part,total,projects,vence,pk}=unpackBundle(new TextDecoder().decode(await pipe(await abrirCifrado(b64u.dec(m[1])),DecompressionStream,'deflate-raw')))); }
   else if(m=str.match(/#b=([\w-]+)/)){
-    ({part,total,projects}=unpackBundle(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw')))); }
+    ({part,total,projects,vence,pk}=unpackBundle(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw')))); }
   else if(m=str.match(/#q=([\w-]+)/)){                                 // formato anterior
     const d=unpackHoles(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw'))); projects=[d]; }
   else if(m=str.match(/#p=([\w-]+)/)){                                 // formato más antiguo
     const [name,...rows]=new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'gzip')).split('\n');
     projects=[{name,holes:rows.filter(Boolean).map(r=>{const [id,E,N,Z]=r.split(',');return{id,E:+E,N:+N,Z:Z===''?NaN:+Z,proj:name};})}]; }
   else throw new Error('El enlace no es válido');
-  for(const p of projects) await idb.put('projects',{name:p.name,holes:p.holes,added:Date.now()});
+  // el vencimiento viaja dentro del contenido cifrado y autenticado: no se puede cambiar
+  if(vence&&Date.now()>vence) throw new Error(`Este enlace venció el ${fechaCorta(vence)}: pide uno nuevo en la plataforma`);
+  for(const p of projects) await idb.put('projects',{name:p.name,holes:p.holes,added:Date.now(),vence,pk,previo:p.previo||[]});
   await refreshProjects(projects[projects.length-1].name);
   if(total>1){ if(got.total!==total||Date.now()-got.t>3600e3){ got.total=total; got.parts=new Set(); }
     got.parts.add(part); got.t=Date.now(); const left=total-got.parts.size;
@@ -563,25 +616,30 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 function fmtDist(m){ return m<1000?Math.round(m)+' m':(m/1000).toFixed(m<10000?1:0)+' km'; }
 const unpick=new Set();            // proyectos desmarcados para la salida (por defecto van todos)
 async function renderProjects(){
-  const ps=await idb.all('projects'), logs=await idb.all('logs'), done={};
-  logs.forEach(l=>{ if(l.estado) done[l.proj]=(done[l.proj]||0)+1; });
+  const all=await idb.all('projects'), ps=all.filter(p=>!p.entregado), ent=all.filter(p=>p.entregado).sort((a,b)=>b.entregado-a.entregado);
+  const logs=await idb.all('logs'), hecho=new Set(logs.filter(l=>l.estado).map(l=>l.key)), ult={}, done={};
+  logs.forEach(l=>{ ult[l.proj]=Math.max(ult[l.proj]||0,Date.parse(l.ts)||0); });
+  ps.forEach(p=>{ const pv=new Set(p.previo||[]); done[p.name]=p.holes.filter(h=>hecho.has(p.name+'|'+h.id)||pv.has(h.id)).length; });
   const g=gpsEN();
   const rows=ps.map(p=>{ const n=p.holes.length; let d=null;
     if(g&&n){ const cE=p.holes.reduce((a,h)=>a+h.E,0)/n, cN=p.holes.reduce((a,h)=>a+h.N,0)/n; d=Math.hypot(g.E-cE,g.N-cN); }
     return {p,n,dn:done[p.name]||0,d}; });
   rows.sort((a,b)=>(a.d!=null&&b.d!=null)?a.d-b.d:a.p.name.localeCompare(b.p.name));
   const box=$('#projList');
-  if(!rows.length){ box.innerHTML='<div class="pnone">Aún no hay proyectos.<br>Carga uno o varios CSV, o pega un enlace.</div>'; updatePick(); return; }
-  box.innerHTML=rows.map(r=>{ const pct=r.n?Math.round(r.dn*100/r.n):0;
+  const entHtml=ent.length?`<div class="psec">Entregados</div>`+ent.map(p=>`<div class="pent"><i class="ic" data-ic="check"></i><div><b>${esc(p.name)}</b>
+      <small>Entregado ${fechaCorta(p.entregado)} · ${p.done}/${p.n} taladros · borrado del equipo</small></div></div>`).join(''):'';
+  if(!rows.length){ box.innerHTML='<div class="pnone">Aún no hay mallas.<br>Escanea el QR del paquete que genera la plataforma.</div>'+entHtml; hydrate(box); updatePick(); return; }
+  box.innerHTML=rows.map(r=>{ const pct=r.n?Math.round(r.dn*100/r.n):0, lim=r.p.vence?limiteBorrado(r.p,ult[r.p.name]):null;
     return `<div class="prow${r.p.name===S.proj?' cur':''}" data-n="${esc(r.p.name)}">
       <input type="checkbox" class="psel" ${unpick.has(r.p.name)?'':'checked'} title="Incluir en el paquete de salida">
       <div class="pmain" data-a="open"><b>${esc(r.p.name)}</b>
         <small>${r.dn} / ${r.n} taladros · ${pct}%${r.d!=null?' · a '+fmtDist(r.d):''}</small>
-        <div class="pbar"><i style="width:${pct}%"></i></div></div>
+        <div class="pbar"><i style="width:${pct}%"></i></div>
+        ${lim&&lim-Date.now()<24*H?`<small class="pborra">Se borra el ${fechaCorta(lim)} si no hay actividad</small>`:r.p.vence?`<small class="pvence">Enlace válido hasta ${fechaCorta(r.p.vence)}</small>`:''}</div>
       <div class="pact">
         <button class="ib" data-a="exp" title="Exportar logueos"><i class="ic" data-ic="upload"></i></button>
         <button class="ib" data-a="del" title="Borrar proyecto"><i class="ic" data-ic="trash"></i></button>
-      </div></div>`; }).join('');
+      </div></div>`; }).join('')+entHtml;
   hydrate(box); updatePick();
 }
 function pickedNames(){ return [...document.querySelectorAll('#projList .prow')].filter(r=>r.querySelector('.psel').checked).map(r=>r.dataset.n); }
@@ -637,6 +695,33 @@ $('#qrNext').onclick=()=>{ qrIdx=(qrIdx+1)%qrParts.length; drawQR(); };
 $('#qrCopy').onclick=async()=>{ const l=qrParts[qrIdx].link; try{ await navigator.clipboard.writeText(l); toast('Enlace copiado'); }catch{ prompt('Copia este enlace:',l); } };
 $('#pQr').onclick=showBundleQR;
 
+/* ---------- escanear el QR del paquete ---------- */
+let scanSt=null;
+async function escanearQr(){
+  const d=$('#scanDlg'); $('#scanTip').textContent='Encuadra el QR del paquete'; d.showModal();
+  try{ ZXingWASM.prepareZXingModule({overrides:{locateFile:(p,pre)=>p.endsWith('.wasm')?'vendor/zxing/'+p:pre+p}}); }catch{}
+  try{ scanSt=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}}); }
+  catch(e){ d.close(); toast('No se pudo abrir la cámara: '+(e.message||e),4000); return; }
+  const v=$('#scanVid'); v.srcObject=scanSt; await v.play().catch(()=>{});
+  const c=document.createElement('canvas'), g=c.getContext('2d',{willReadFrequently:true});
+  const loop=async()=>{ if(!d.open) return;
+    if(v.videoWidth){ const k=Math.min(1,1280/Math.max(v.videoWidth,v.videoHeight)); c.width=Math.round(v.videoWidth*k); c.height=Math.round(v.videoHeight*k);
+      g.drawImage(v,0,0,c.width,c.height);
+      try{ const r=await ZXingWASM.readBarcodes(g.getImageData(0,0,c.width,c.height),{formats:['QRCode'],maxNumberOfSymbols:1,tryHarder:true});
+        const t=r.find(x=>x.isValid&&/#(?:[qpb]|bc)=/.test(x.text||''))?.text;
+        if(t){ d.close();
+          try{ await importLink(t); if($('#projDlg').open) $('#projDlg').close();
+            if(got.total>1&&got.parts.size<got.total) setTimeout(escanearQr,1500); }   // paquete en partes: sigue con la siguiente
+          catch(e){ toast(e.message,4500); }
+          return; }
+        if(r.some(x=>x.isValid)) $('#scanTip').textContent='Ese QR no es de un paquete de Logueo';
+      }catch{} }
+    setTimeout(loop,150); };
+  loop();
+}
+$('#scanDlg').addEventListener('close',()=>{ scanSt?.getTracks().forEach(t=>t.stop()); scanSt=null; });
+$('#emptyScan').onclick=escanearQr; $('#pScan').onclick=escanearQr;
+
 /* ---------- acerca de ---------- */
 function setupAbout(){
   for(const [id,txt] of [['#byLink',AUTOR.nombre],['#aboutBy',AUTOR.nombre]]){ const a=$(id); a.textContent=txt; a.href=AUTOR.url; }
@@ -649,8 +734,10 @@ $('#cfgWipe').onclick=async()=>{ if(!S.proj) return; if(await wipeProject(S.proj
 addEventListener('resize',resize);
 matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
 (async()=>{
-  loadCfg(); hydrate(); setupAbout(); await idb.open(); resize(); await refreshProjects();
+  loadCfg(); hydrate(); setupAbout(); await idb.open(); try{ await limpiezaAuto(); }catch{} resize(); await refreshProjects();
   if(/#(?:[qpb]|bc)=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
+  addEventListener('hashchange',async()=>{ if(!/#(?:[qpb]|bc)=/.test(location.hash)) return;   // enlace abierto con la app ya abierta
+    const h=location.href; history.replaceState(null,'',location.pathname); try{ await importLink(h); }catch(e){ toast(e.message,4000); } });
   if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

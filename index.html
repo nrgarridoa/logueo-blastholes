@@ -38,14 +38,15 @@
         <g fill="#60a5fa"><circle cx="9" cy="9" r="2.6"/><circle cx="16" cy="9" r="2.6"/><circle cx="23" cy="9" r="2.6"/><circle cx="9" cy="16" r="2.6"/><circle cx="23" cy="16" r="2.6"/><circle cx="9" cy="23" r="2.6"/><circle cx="16" cy="23" r="2.6"/><circle cx="23" cy="23" r="2.6"/></g>
         <circle cx="16" cy="16" r="3.4" fill="#facc15"/></svg>
       <h1>Logueo de taladros</h1>
-      <p>Carga la malla, ubícate con el GPS y registra cada taladro en campo, incluso sin señal.</p>
+      <p>Escanea el QR del paquete que genera la plataforma, ubícate con el GPS y registra cada taladro, incluso sin señal.</p>
       <ol>
-        <li><i class="ic" data-ic="file"></i>Carga el CSV <small>id, Norte, Este, Cota, proyecto</small></li>
+        <li><i class="ic" data-ic="scan"></i>Escanea el QR del paquete <small>y escribe su clave</small></li>
         <li><i class="ic" data-ic="locate"></i>Ubícate con el GPS</li>
         <li><i class="ic" data-ic="camera"></i>Registra datos y fotos</li>
       </ol>
-      <button id="emptyCsv" class="primary wide"><i class="ic" data-ic="file"></i>Cargar CSV de taladros</button>
-      <button id="emptyLink" class="ghost wide"><i class="ic" data-ic="clipboard"></i>Pegar enlace de proyecto</button>
+      <button id="emptyScan" class="primary wide"><i class="ic" data-ic="scan"></i>Escanear QR del paquete</button>
+      <button id="emptyLink" class="ghost wide"><i class="ic" data-ic="clipboard"></i>Pegar enlace</button>
+      <button id="emptyCsv" class="ghost wide"><i class="ic" data-ic="file"></i>Cargar CSV de taladros</button>
       <small class="by">Desarrollado por <a id="byLink" target="_blank" rel="noopener"></a></small>
     </div>
   </div>
@@ -96,6 +97,7 @@
     <button id="pQr" class="primary"><i class="ic" data-ic="qr"></i>QR de salida <span id="pQrN"></span></button>
   </div>
   <div class="row">
+    <button id="pScan" class="ghost"><i class="ic" data-ic="scan"></i>Escanear QR</button>
     <button id="pCsv" class="ghost"><i class="ic" data-ic="file"></i>Cargar CSV(s)</button>
     <button id="pPaste" class="ghost"><i class="ic" data-ic="clipboard"></i>Pegar enlace</button>
   </div>
@@ -137,14 +139,29 @@
 
 <dialog id="claveDlg">
   <form method="dialog">
-    <div class="dlg-head"><h3>Clave del enlace</h3></div>
-    <p id="claveErr" class="muted" style="color:#B42318"></p>
-    <label>La clave que acompaña a este enlace (p. ej. K7M4-QX9P) <input id="claveIn" autocomplete="off" autocapitalize="characters" spellcheck="false" required style="text-transform:uppercase;letter-spacing:.12em;font-family:monospace;font-size:20px"></label>
+    <div class="clave-h"><span>🔒</span><h3>Clave del paquete</h3>
+      <p class="muted">Está junto al QR en la plataforma. Escribe solo letras y números: el guion se pone solo.</p></div>
+    <p id="claveErr" class="clave-err"></p>
+    <input id="claveIn" class="clave-in" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="9" placeholder="XXXX-XXXX">
     <div class="row">
       <button value="no" class="ghost" formnovalidate>Cancelar</button>
       <button value="ok" class="primary">Abrir</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="entregaDlg">
+  <form method="dialog">
+    <div class="clave-h"><span>📦</span><h3>¿Entregaste el archivo?</h3><p id="entregaArch" class="muted"></p></div>
+    <p class="aviso-borrar">Al confirmar, la malla, sus logueos y fotos se <b>borran de este equipo</b>. Para seguir, otro turno abre un enlace nuevo de la plataforma.</p>
+    <div class="row"><button value="no" class="ghost" formnovalidate>Todavía no</button><button value="ok" class="primary">Sí, entregado</button></div>
+  </form>
+</dialog>
+
+<dialog id="scanDlg">
+  <div class="dlg-head"><h3>Escanear QR</h3><button class="ib" data-close><i class="ic" data-ic="x"></i></button></div>
+  <video id="scanVid" playsinline muted></video>
+  <p id="scanTip" class="muted"></p>
 </dialog>
 
 <dialog id="aboutDlg">
@@ -158,6 +175,7 @@
 
 <div id="toast"></div>
 <script src="qrcode.min.js"></script>
+<script src="vendor/zxing/zxing-reader.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
-const V='logueo-bh-v6b';
-const SHELL=['./','index.html','style.css','app.js','qrcode.min.js','manifest.webmanifest','icon-192.png','icon-512.png'];
+const V='logueo-bh-v7';
+const SHELL=['./','index.html','style.css','app.js','qrcode.min.js','manifest.webmanifest','icon-192.png','icon-512.png','vendor/zxing/zxing-reader.js','vendor/zxing/zxing_reader.wasm'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))));self.clients.claim()});
 // red primero (para recibir actualizaciones), caché si no hay señal

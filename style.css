@@ -129,3 +129,16 @@ dialog .row>button{flex:1;white-space:nowrap}
 .psel{width:22px;height:22px;min-height:0;accent-color:var(--pri);flex:none}
 .qrnav{display:flex;align-items:center;justify-content:space-between;margin:6px 0}
 button:disabled{opacity:.45}
+
+/* ---------- v1.7: clave, entrega, escaneo, mallas ---------- */
+.clave-h{text-align:center}.clave-h span{font-size:30px}.clave-h h3{margin:6px 0 4px}
+.clave-err{color:#B42318;font-weight:700;text-align:center;margin:8px 0 0;min-height:1em}
+input.clave-in{display:block;width:100%;margin:12px 0 4px;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:28px;font-weight:700;
+  letter-spacing:.18em;border:2px solid #cbd5e1;border-radius:14px;padding:12px 8px;text-transform:uppercase}
+input.clave-in:focus{outline:0;border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.18)}
+.aviso-borrar{background:#FFF4D6;color:#6B4600;border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.45}
+#scanDlg video{width:100%;max-height:60vh;border-radius:12px;background:#000;object-fit:cover}
+.psec{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;opacity:.65;margin:14px 2px 6px}
+.pent{display:flex;gap:10px;align-items:center;padding:8px 6px;opacity:.85}.pent .ic{color:#16a34a;flex:none}
+.pent b{display:block}.pent small{display:block;opacity:.75}
+.pborra{display:block;color:#dc2626;font-weight:700;margin-top:3px}.pvence{display:block;opacity:.7;margin-top:3px}
