@@ -20,10 +20,10 @@
     <div class="brand-t"><b>Logueo BH</b><small>Taladros de voladura</small></div>
   </div>
   <button id="projBtn" class="chip-btn" title="Proyectos">
-    <i class="ic" data-ic="layers"></i><span id="projName">Sin proyecto</span><small id="projPct"></small>
+    <i class="ic" data-ic="home"></i><span id="projName">Sin proyecto</span><small id="projPct"></small>
   </button>
-  <button id="btnCsv" class="ib" title="Cargar CSV de taladros"><i class="ic" data-ic="file"></i></button>
-  <button id="btnExport" class="ib" title="Exportar logueos"><i class="ic" data-ic="upload"></i></button>
+  <button id="btnCsv" class="ib" title="Cargar CSV de taladros" hidden><i class="ic" data-ic="file"></i></button>
+  <button id="btnExport" class="ib" title="Exportar logueos" hidden><i class="ic" data-ic="upload"></i></button>
   <button id="btnCfg" class="ib" title="Ajustes"><i class="ic" data-ic="sliders"></i></button>
   <input id="fileCsv" type="file" accept=".csv,.txt,text/csv" multiple hidden>
 </header>
@@ -65,7 +65,15 @@
     <button id="btnNext" title="Siguiente pendiente más cercano"><i class="ic" data-ic="next"></i></button>
     <button id="btnGps" class="fab" title="Mi posición"><i class="ic" data-ic="locate"></i></button>
   </div>
+  <section id="lista" hidden></section>
+  <section id="entrega" hidden></section>
 </main>
+<nav id="tabs">
+  <button data-t="mapa" class="on"><i class="ic" data-ic="map"></i><span>Mapa</span></button>
+  <button data-t="lista"><i class="ic" data-ic="list"></i><span>Taladros</span></button>
+  <button data-t="entrega"><i class="ic" data-ic="upload"></i><span>Entregar</span></button>
+</nav>
+<section id="home"></section>
 
 <section id="sheet" hidden>
   <div class="grab"></div>

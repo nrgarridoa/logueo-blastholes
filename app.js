@@ -31,7 +31,7 @@ const $ = s => document.querySelector(s);
 
 /* ---------- iconos (SVG propios, trazo 2px) ---------- */
 const AUTOR={nombre:'nrgarridoa',url:'https://github.com/nrgarridoa',repo:'https://github.com/nrgarridoa/logueo-blastholes'};
-const VERSION='1.7.0';
+const VERSION='1.8.0';
 const IC={
   layers:'<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
   file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>',
@@ -54,6 +54,10 @@ const IC={
   clipboard:'<rect x="6" y="5" width="12" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/>',
   trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
+  home:'<path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/>',
+  map:'<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+  list:'<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   scan:'<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 12h8"/>',
   qr:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v.01M14 21h3M21 17v4"/>',
 };
@@ -346,7 +350,7 @@ $('#fileCsv').onchange=async e=>{
   const exist=[]; for(const nm of groups.keys()) if(await idb.get('projects',nm)) exist.push(nm);
   if(exist.length&&!confirm(`Ya existen: ${exist.join(', ')}. ¿Reemplazar sus taladros? (los logueos se conservan)`)) return;
   let last,total=0; for(const [nm,hs] of groups){ await idb.put('projects',{name:nm,holes:hs,added:Date.now()}); last=nm; total+=hs.length; }
-  await refreshProjects(last); if($('#projDlg').open) renderProjects();
+  await refreshProjects(last); if($('#projDlg').open) renderProjects(); verMalla();
   toast(`${groups.size} proyecto${groups.size>1?'s':''} · ${total} taladros cargados`,3500);
 };
 
@@ -404,7 +408,7 @@ async function entregar(name){
   await borrarDatos(name);
   await idb.put('projects',{name,holes:[],entregado:Date.now(),n:p?.holes?.length||0,done:(p?.holes||[]).filter(h=>logs.some(l=>l.id===h.id&&l.estado)||(p.previo||[]).includes(h.id)).length,added:p?.added||Date.now()});
   await refreshProjects(name===S.proj?undefined:S.proj); if($('#projDlg').open) renderProjects();
-  toast(`${name} entregado y borrado del equipo`,4000);
+  showHome(); toast(`${name} entregado y borrado del equipo`,4000);
 }
 /* mallas de la plataforma sin actividad: se borran 3 dias despues de vencido el enlace o de la ultima lectura */
 const H=3600e3, fechaCorta=t=>new Date(t).toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
@@ -565,6 +569,7 @@ async function importLink(str){
     got.parts.add(part); got.t=Date.now(); const left=total-got.parts.size;
     toast(left?`Parte ${part} de ${total} cargada. Faltan ${left} por escanear`:`Paquete completo: ${total} partes cargadas`,4500); }
   else toast(projects.length>1?`${projects.length} proyectos cargados`:`Proyecto ${projects[0].name}: ${projects[0].holes.length} taladros`);
+  verMalla();
 }
 async function pasteLink(){ let t=''; try{ t=await navigator.clipboard.readText(); }catch{}
   if(!/#(?:[qpb]|bc)=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
@@ -658,16 +663,16 @@ async function wipeProject(name){
   for(const p of await idb.all('photos')) if(p.key.startsWith(name+'|')) await idb.del('photos',p.id);
   await idb.del('projects',name); return true;
 }
-$('#projBtn').onclick=openProjectsPanel;
+$('#projBtn').onclick=()=>showHome();
 $('#pCsv').onclick=()=>$('#fileCsv').click();
 $('#pPaste').onclick=pasteLink;
 $('#emptyCsv').onclick=()=>$('#fileCsv').click();
 $('#emptyLink').onclick=pasteLink;
 $('#projList').addEventListener('click',async e=>{
   const b=e.target.closest('[data-a]'); if(!b) return; const name=b.closest('.prow').dataset.n;
-  if(b.dataset.a==='open'){ await openProject(name); $('#projDlg').close(); }
+  if(b.dataset.a==='open'){ await openProject(name); $('#projDlg').close(); verMalla(); }
   else if(b.dataset.a==='exp') exportProject(name);
-  else if(b.dataset.a==='del'){ if(await wipeProject(name)){ await refreshProjects(name===S.proj?undefined:S.proj); renderProjects(); } }
+  else if(b.dataset.a==='del'){ if(await wipeProject(name)){ await refreshProjects(name===S.proj?undefined:S.proj); renderProjects(); if(document.body.classList.contains('en-home')) renderHome(); } }
 });
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 
@@ -728,14 +733,98 @@ function setupAbout(){
   const r=$('#aboutRepo'); r.href=AUTOR.repo; $('#ver').textContent=VERSION;
 }
 $('#cfgAbout').onclick=()=>{ $('#cfg').close(); $('#aboutDlg').showModal(); };
-$('#cfgWipe').onclick=async()=>{ if(!S.proj) return; if(await wipeProject(S.proj)){ $('#cfg').close(); await refreshProjects(); } };
+$('#cfgWipe').onclick=async()=>{ if(!S.proj) return; if(await wipeProject(S.proj)){ $('#cfg').close(); await refreshProjects(); showHome(); } };
+
+/* ---------- inicio, pestañas y listado de taladros (v1.8) ---------- */
+let TAB='mapa', FIL='todas', QL='';
+const anillo=pct=>{ const rr=24, c=2*Math.PI*rr;
+  return `<svg class="anillo" viewBox="0 0 60 60"><circle cx="30" cy="30" r="${rr}" class="a-f"/><circle cx="30" cy="30" r="${rr}" class="a-v${pct===100?' full':''}"
+    stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 30 30)"/><text x="30" y="34" text-anchor="middle">${pct}%</text></svg>`; };
+const estH=h=>{ const l=S.logs.get(S.proj+'|'+h.id); if(l&&l.estado) return l.estado==='Logueado'?'ok':'obs'; return S.prev.has(h.id)?'prev':'pend'; };
+async function showHome(){ document.body.classList.add('en-home'); $('#sheet').hidden=true; await renderHome(); }
+function verMalla(){ if(!S.proj){ showHome(); return; } document.body.classList.remove('en-home'); S.sel=null; resize(); fitView(); verTab('mapa'); }
+function verTab(t){ TAB=t; $('#lista').hidden=t!=='lista'; $('#entrega').hidden=t!=='entrega';
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  if(t==='lista') renderLista(); else if(t==='entrega') renderEntrega(); else { $('#sheet').hidden=!S.sel; resize(); draw(); } }
+$('#tabs').addEventListener('click',e=>{ const b=e.target.closest('[data-t]'); if(b){ if(b.dataset.t!=='mapa') $('#sheet').hidden=true; verTab(b.dataset.t); } });
+
+async function renderHome(){
+  const all=await idb.all('projects'), ps=all.filter(p=>!p.entregado).sort((a,b)=>(b.added||0)-(a.added||0));
+  const ent=all.filter(p=>p.entregado).sort((a,b)=>b.entregado-a.entregado);
+  const logs=await idb.all('logs'), hecho=new Set(logs.filter(l=>l.estado).map(l=>l.key)), ult={};
+  logs.forEach(l=>{ ult[l.proj]=Math.max(ult[l.proj]||0,Date.parse(l.ts)||0); });
+  const card=p=>{ const pv=new Set(p.previo||[]), n=p.holes.length, dn=p.holes.filter(h=>hecho.has(p.name+'|'+h.id)||pv.has(h.id)).length;
+    const pct=n?Math.round(dn*100/n):0, lim=p.vence?limiteBorrado(p,ult[p.name]):null;
+    return `<button class="mcard${p.name===S.proj?' cur':''}" data-h="open" data-n="${esc(p.name)}">${anillo(pct)}
+      <div class="mc-t"><b>${esc(p.name)}</b><small>${dn} de ${n} taladros${pv.size?` · ${pv.size} de otro turno`:''}</small>
+        <em>${ult[p.name]?'Última lectura '+fechaCorta(ult[p.name]):'Cargada '+fechaCorta(p.added||Date.now())}</em>
+        ${lim&&lim-Date.now()<24*H?`<em class="pborra">Se borra el ${fechaCorta(lim)} si no hay actividad</em>`:p.vence?`<em>Enlace válido hasta ${fechaCorta(p.vence)}</em>`:''}</div>
+      <i class="ic" data-ic="right"></i></button>`; };
+  const recibo=p=>`<div class="pent"><i class="ic" data-ic="check"></i><div><b>${esc(p.name)}</b>
+      <small>Entregado ${fechaCorta(p.entregado)} · ${p.done}/${p.n} taladros · borrado del equipo</small></div>
+      <button class="ib" data-h="quitar" data-n="${esc(p.name)}" title="Quitar"><i class="ic" data-ic="x"></i></button></div>`;
+  $('#home').innerHTML=`<div class="h-hero"><div class="h-brand">${document.querySelector('.brand .logo').outerHTML}<div><small>Ore Control</small><b>Logueo de taladros</b></div></div>
+      <button class="h-user" data-h="user"><i class="ic" data-ic="user"></i>${esc(S.cfg.user||'¿Quién loguea?')}</button></div>
+    <div class="h-body">
+      <div class="h-acc">
+        <button class="acc pri" data-h="scan"><i class="ic" data-ic="scan"></i><b>Escanear QR</b><span>del paquete en la plataforma</span></button>
+        <button class="acc" data-h="paste"><i class="ic" data-ic="clipboard"></i><b>Pegar enlace</b><span>si te lo enviaron</span></button>
+        <button class="acc" data-h="csv"><i class="ic" data-ic="file"></i><b>Cargar CSV</b><span>malla propia</span></button></div>
+      <div class="h-sec">Mallas en el equipo <span>${ps.length}</span></div>
+      ${ps.length?ps.map(card).join(''):'<div class="h-vacio">Todavía no hay mallas.<br>Escanea el QR del paquete que genera la plataforma en <b>Ore Control › Logueo de Blastholes</b>.</div>'}
+      ${ps.length?'<button class="ghost wide" data-h="share"><i class="ic" data-ic="qr"></i>Pasar mallas a otro equipo (QR)</button>':''}
+      ${ent.length?`<div class="h-sec">Entregados <span>${ent.length}</span></div>${ent.map(recibo).join('')}`:''}
+      <div class="h-foot">Al entregar el archivo, la malla se borra de este equipo · v${VERSION}</div></div>`;
+  hydrate($('#home'));
+}
+$('#home').addEventListener('click',async e=>{ const b=e.target.closest('[data-h]'); if(!b) return; const a=b.dataset.h;
+  if(a==='scan') escanearQr(); else if(a==='paste') pasteLink(); else if(a==='csv') $('#fileCsv').click();
+  else if(a==='user') $('#btnCfg').click(); else if(a==='share') openProjectsPanel();
+  else if(a==='open'){ await openProject(b.dataset.n); verMalla(); }
+  else if(a==='quitar'){ await idb.del('projects',b.dataset.n); renderHome(); } });
+
+async function renderLista(){
+  const fotos={}; for(const ph of await idb.all('photos')) if(ph.key.startsWith(S.proj+'|')) fotos[ph.key]=(fotos[ph.key]||0)+1;
+  const c={todas:S.holes.length,pend:0,ok:0,obs:0,prev:0}; S.holes.forEach(h=>c[estH(h)]++);
+  const rows=S.order.filter(h=>(!QL||h.id.includes(QL))&&(FIL==='todas'||estH(h)===FIL));
+  const F=[['todas','Todos'],['pend','Pendientes'],['ok','Logueados'],['obs','Sin acceso / otro'],['prev','Otro turno']].filter(([k])=>k!=='prev'||c.prev);
+  const txt={pend:'Pendiente',prev:'Logueado en otro turno'};
+  $('#lista').innerHTML=`<div class="l-head"><input id="lq" type="search" inputmode="numeric" placeholder="Buscar taladro" value="${esc(QL)}">
+      <div class="l-fil">${F.map(([k,t])=>`<button class="${FIL===k?'on':''}" data-f="${k}">${t} <b>${c[k]}</b></button>`).join('')}</div></div>
+    <div class="l-list">${rows.slice(0,600).map(h=>{ const l=S.logs.get(S.proj+'|'+h.id)||{}, st=estH(h), nf=fotos[S.proj+'|'+h.id]||0;
+      const lito=l.lito?((LITO.find(x=>x.v===String(l.lito))||{}).t||l.lito):'';
+      return `<button class="l-row" data-id="${esc(h.id)}"><i class="d ${st==='prev'?'ok':st}"></i><div><b>${esc(h.id)}</b>
+        <small>${esc(txt[st]||l.estado)}${lito?' · '+esc(lito):''}${nf?` · ${nf} foto${nf>1?'s':''}`:''}</small></div><i class="ic" data-ic="right"></i></button>`; }).join('')
+      ||'<div class="pnone">Ningún taladro con ese filtro</div>'}</div>`;
+  hydrate($('#lista'));
+  const q=$('#lq'); q.oninput=()=>{ QL=q.value.trim(); const pos=q.selectionStart; renderLista().then(()=>{ const x=$('#lq'); x.focus(); x.setSelectionRange(pos,pos); }); };
+}
+$('#lista').addEventListener('click',e=>{ const f=e.target.closest('[data-f]'); if(f){ FIL=f.dataset.f; renderLista(); return; }
+  const row=e.target.closest('.l-row'); if(row){ const h=S.holes.find(x=>x.id===row.dataset.id); if(h){ verTab('mapa'); S.sel=h.id; goHole(h); } } });
+
+async function renderEntrega(){
+  const p=await idb.get('projects',S.proj), c={pend:0,ok:0,obs:0,prev:0}; S.holes.forEach(h=>c[estH(h)]++);
+  let nf=0; for(const ph of await idb.all('photos')) if(ph.key.startsWith(S.proj+'|')) nf++;
+  const n=S.holes.length, pct=n?Math.round((n-c.pend)*100/n):0;
+  $('#entrega').innerHTML=`<div class="e-card">${anillo(pct)}<div><b>${esc(S.proj)}</b><small>${n} taladros${p?.vence?' · enlace válido hasta '+fechaCorta(p.vence):''}</small></div></div>
+    <div class="e-kpi"><div><b style="color:var(--ok)">${c.ok}</b><span>Logueados</span></div><div><b style="color:var(--obs)">${c.obs}</b><span>Sin acceso / otro</span></div>
+      <div><b style="color:var(--pend)">${c.pend}</b><span>Pendientes</span></div><div><b>${nf}</b><span>Fotos</span></div></div>
+    ${c.prev?`<p class="muted">${c.prev} taladros ya estaban logueados en otro turno.</p>`:''}
+    <button id="eExp" class="primary wide big"><i class="ic" data-ic="upload"></i>Exportar y entregar</button>
+    <p class="muted">${p?.pk?'El archivo va cifrado: solo la plataforma lo puede abrir. ':''}Al confirmar la entrega, la malla se borra de este equipo.</p>
+    <button id="eQr" class="ghost wide"><i class="ic" data-ic="qr"></i>Pasar la malla a otro equipo (QR)</button>`;
+  hydrate($('#entrega'));
+  $('#eExp').onclick=()=>exportProject(S.proj); $('#eQr').onclick=openProjectsPanel;
+}
 
 /* ---------- arranque ---------- */
 addEventListener('resize',resize);
 matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
 (async()=>{
   loadCfg(); hydrate(); setupAbout(); await idb.open(); try{ await limpiezaAuto(); }catch{} resize(); await refreshProjects();
-  if(/#(?:[qpb]|bc)=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
+  let abierto=false;
+  if(/#(?:[qpb]|bc)=/.test(location.hash)){ try{ await importLink(location.href); abierto=true; }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
+  if(!abierto) showHome();
   addEventListener('hashchange',async()=>{ if(!/#(?:[qpb]|bc)=/.test(location.hash)) return;   // enlace abierto con la app ya abierta
     const h=location.href; history.replaceState(null,'',location.pathname); try{ await importLink(h); }catch(e){ toast(e.message,4000); } });
   if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
