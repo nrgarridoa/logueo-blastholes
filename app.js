@@ -31,7 +31,7 @@ const $ = s => document.querySelector(s);
 
 /* ---------- iconos (SVG propios, trazo 2px) ---------- */
 const AUTOR={nombre:'nrgarridoa',url:'https://github.com/nrgarridoa',repo:'https://github.com/nrgarridoa/logueo-blastholes'};
-const VERSION='1.4';
+const VERSION='1.5';
 const IC={
   layers:'<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
   file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>',
@@ -351,9 +351,10 @@ $('#fileCsv').onchange=async e=>{
 
 /* ---------- ajustes ---------- */
 function offTxt(){ $('#cfgOff').textContent=`Calibración GPS: ΔE ${S.cfg.dE.toFixed(1)} m, ΔN ${S.cfg.dN.toFixed(1)} m`; }
-$('#btnCfg').onclick=()=>{ $('#cfgUser').value=S.cfg.user; $('#cfgZone').value=S.cfg.zone; $('#cfgHemi').value=S.cfg.hemi; offTxt(); $('#cfg').showModal(); };
-$('#cfgOk').onclick=()=>{ S.cfg.user=$('#cfgUser').value.trim(); S.cfg.zone=+$('#cfgZone').value||19; S.cfg.hemi=$('#cfgHemi').value;
+$('#btnCfg').onclick=()=>{ $('#cfgClave').value=''; $('#cfgClave').placeholder=getClave()?'Guardada (escribe otra para cambiarla)':'Sin clave'; $('#cfgUser').value=S.cfg.user; $('#cfgZone').value=S.cfg.zone; $('#cfgHemi').value=S.cfg.hemi; offTxt(); $('#cfg').showModal(); };
+$('#cfgOk').onclick=()=>{ const nc=$('#cfgClave').value; if(nc){ setClave(nc); cifSesion=null; } S.cfg.user=$('#cfgUser').value.trim(); S.cfg.zone=+$('#cfgZone').value||19; S.cfg.hemi=$('#cfgHemi').value;
   saveCfg(); $('#cfg').close(); draw(); };
+$('#cfgClaveDel').onclick=()=>{ setClave(''); cifSesion=null; $('#cfgClave').placeholder='Sin clave'; toast('Clave de campo borrada de este equipo'); };
 $('#cfgResetOff').onclick=()=>{ S.cfg.dE=S.cfg.dN=0; saveCfg(); offTxt(); draw(); };
 /* ---------- exportar (ZIP: logueo.csv + fotos) ---------- */
 const COLS=['proj','id','E','N','Z','estado','lito','lito2','alter','mineral','intens','dureza','fractura','humedad',
@@ -415,6 +416,34 @@ const b64u={ enc:u=>{let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharC
              dec:t=>Uint8Array.from(atob(t.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)) };
 async function pipe(bytes,Stream,fmt){ return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new Stream(fmt))).arrayBuffer()); }
 
+/* enlaces cifrados #bc= : version(1) | sal(16) | iv(12) | AES-256-GCM (clave PBKDF2-SHA256 de la clave de campo) */
+const CLAVE_LS='clave-campo', ITER=200000, TE=new TextEncoder();
+const getClave=()=>{ try{ return localStorage.getItem(CLAVE_LS)||''; }catch{ return ''; } };
+const setClave=c=>{ try{ c?localStorage.setItem(CLAVE_LS,c):localStorage.removeItem(CLAVE_LS); }catch{} };
+async function derivar(clave,sal,usos){
+  const base=await crypto.subtle.importKey('raw',TE.encode(clave),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:sal,iterations:ITER,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,usos); }
+async function descifrar(bytes,clave){
+  if(bytes[0]!==1) throw new Error('Enlace de una versión que esta app no conoce. Actualiza la app.');
+  const k=await derivar(clave,bytes.slice(1,17),['decrypt']);
+  return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.slice(17,29),additionalData:TE.encode('b')},k,bytes.slice(29))); }
+let cifSesion=null;                      // una sal por sesion: la clave se deriva una vez
+async function cifrar(bytes,clave){
+  if(!cifSesion||cifSesion.clave!==clave){ const sal=crypto.getRandomValues(new Uint8Array(16)); cifSesion={clave,sal,k:await derivar(clave,sal,['encrypt'])}; }
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:TE.encode('b')},cifSesion.k,bytes));
+  const out=new Uint8Array(29+ct.length); out[0]=1; out.set(cifSesion.sal,1); out.set(iv,17); out.set(ct,29); return out; }
+function pedirClave(error){ const d=$('#claveDlg'); $('#claveErr').textContent=error||''; $('#claveIn').value=''; d.showModal();
+  return new Promise(res=>{ d.onclose=()=>res(d.returnValue==='ok'?{clave:$('#claveIn').value,recordar:$('#claveRec').checked}:null); }); }
+async function abrirCifrado(bytes){
+  let clave=getClave(), recordar=true, error='';
+  for(;;){
+    if(!clave){ const r=await pedirClave(error); if(!r) throw new Error('Se necesita la clave de campo para abrir este enlace');
+      clave=r.clave; recordar=r.recordar; }
+    try{ const out=await descifrar(bytes,clave); if(recordar) setClave(clave); return out; }
+    catch(e){ if(/versión/.test(e.message)) throw e; setClave(''); clave=''; error='Clave incorrecta'; }
+  } }
+
 /* formato compacto: coordenadas en cm como diferencias base-36, comprimido con deflate */
 const isNumId=s=>/^\d+$/.test(s)&&String(+s)===s;
 function packHoles(name,holes){
@@ -441,7 +470,9 @@ async function rawLink(names,part,total){
   const blocks=[];
   for(const n of names){ const p=await idb.get('projects',n); blocks.push(PK+packHoles(p.name,p.holes)); }
   const z=await pipe(new TextEncoder().encode(`${part}/${total}\n`+blocks.join('\n')),CompressionStream,'deflate-raw');
-  return location.origin+location.pathname+'#b='+b64u.enc(z);
+  const clave=getClave();                // con clave de campo guardada el enlace sale cifrado
+  return clave ? location.origin+location.pathname+'#bc='+b64u.enc(await cifrar(z,clave))
+               : location.origin+location.pathname+'#b='+b64u.enc(z);
 }
 async function bundleLinks(names){
   const groups=[[]];
@@ -462,7 +493,9 @@ function unpackBundle(txt){
 const got={total:0,parts:new Set(),t:0};
 async function importLink(str){
   str=String(str); let m, projects, part=1,total=1;
-  if(m=str.match(/#b=([\w-]+)/)){
+  if(m=str.match(/#bc=([\w-]+)/)){
+    ({part,total,projects}=unpackBundle(new TextDecoder().decode(await pipe(await abrirCifrado(b64u.dec(m[1])),DecompressionStream,'deflate-raw')))); }
+  else if(m=str.match(/#b=([\w-]+)/)){
     ({part,total,projects}=unpackBundle(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw')))); }
   else if(m=str.match(/#q=([\w-]+)/)){                                 // formato anterior
     const d=unpackHoles(new TextDecoder().decode(await pipe(b64u.dec(m[1]),DecompressionStream,'deflate-raw'))); projects=[d]; }
@@ -478,7 +511,7 @@ async function importLink(str){
   else toast(projects.length>1?`${projects.length} proyectos cargados`:`Proyecto ${projects[0].name}: ${projects[0].holes.length} taladros`);
 }
 async function pasteLink(){ let t=''; try{ t=await navigator.clipboard.readText(); }catch{}
-  if(!/#[qpb]=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
+  if(!/#(?:[qpb]|bc)=/.test(t)) t=prompt('Pega aquí el enlace del proyecto:')||'';
   if(!t) return; try{ await importLink(t); $('#projDlg').close(); }catch(e){ toast(e.message,3500); } }
 $('#cfgImp').onclick=()=>$('#fileImp').click();
 
@@ -614,7 +647,7 @@ addEventListener('resize',resize);
 matchMedia('(prefers-color-scheme:dark)').addEventListener?.('change',draw);
 (async()=>{
   loadCfg(); hydrate(); setupAbout(); await idb.open(); resize(); await refreshProjects();
-  if(/#[qpb]=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
+  if(/#(?:[qpb]|bc)=/.test(location.hash)){ try{ await importLink(location.href); }catch(e){ toast(e.message,4000); } history.replaceState(null,'',location.pathname); }
   if(navigator.storage?.persist) navigator.storage.persist();   // evita que el navegador borre los datos
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
